@@ -58,12 +58,6 @@
 
 (defvar *osgi-framework* nil)
 
-(defstruct osgi-bundle
-  name
-  bundle
-  index
-  source)
-   
 (defun ensure-osgi-initialized ()
   (unless *osgi-framework*
     (when (not (ignore-errors (find-java-class 'org.osgi.framework.launch.FrameworkFactory)))
@@ -118,18 +112,18 @@
 
     (#"start" bundle)
     (let ((name (or name (#"getSymbolicName" bundle))))
-      (let* ((index (index-class-names (bundle-exports-from-manifest (jar-manifest jar) bundle)))
-					;(struct (make-osgi-bundle :name (#"getSymbolicName" bundle) :bundle bundle :index index :source jar))
-	     )
-	(remove name *loaded-osgi-bundles* :test 'equalp :key 'car)
+      (let* ((index (index-class-names (bundle-exports bundle))))
+	(setq *loaded-osgi-bundles* (remove name *loaded-osgi-bundles* :test 'equalp :key 'car))
 	(push (list name bundle index) *loaded-osgi-bundles*)
-
 	bundle))))
 
 (defun bundle-headers (bundle)
   (loop with headers = (#"getHeaders" bundle)
 	for key in (j2list (#"keys" headers))
 	collect (list key (#"get" headers key) (#"get" headers key))))
+
+(defun bundle-header (bundle key)
+  (#"get"  (#"getHeaders" bundle) key))
 
 ;; Not useful yet
 (defun bundle-capabilities (bundle)
@@ -140,23 +134,6 @@
 	  for namespace = (#"getNamespace" cap)
 	  for es = (#"entrySet" (#"getAttributes" cap)) 
 	  collect (list* namespace cap (mapcar #"getValue" (set-to-list es))))))
-
-;; read the jar manifest and split into key value pairs
-
-(defun jar-manifest (jar)
-  (let* ((jar (new 'jarfile (namestring (truename jar))))
-	 (entry(#"getEntry" jar "META-INF/MANIFEST.MF"))
-	 (stream (new 'lisp.stream 'system::stream
-		      (new 'BufferedReader
-			   (new 'InputStreamReader (#"getInputStream" jar entry))))))
-    (let ((string 
-	    (with-output-to-string (s) 
-	      (loop for line = (read-line stream nil :eof)
-		    until (eq line :eof)
-		    do (princ line s) (terpri s)))))
-      (let ((props (split-at-char (#"replaceAll" string "(|\\n) " "") #\linefeed)))
-	(mapcan (lambda(el) (all-matches el "^(.*?):\\s*(.*)" 1 2))
-		props)))))
 
 ;; This is ugly but will do until there's a better way
 ;; The exported packages are listed in the jar manifest on the key "Export-Package"
@@ -192,8 +169,8 @@
 ;; Spun my wheels a while looking for a cleaner way to do this, but
 ;; its confusing. This should do for now.
 
-(defun bundle-exports-from-manifest (props bundle)
-  (let ((entry (second (find "Export-Package" props :test 'equalp :key 'car)))
+(defun bundle-exports (bundle)
+  (let ((entry (bundle-header bundle "Export-Package"))
 	(bundleWiring (#"adapt" bundle (find-java-class 'BundleWiring))))
     (loop for package-prefix
 	    in 
@@ -215,7 +192,14 @@
 		 (search path url :test 'char=)))))))
 
 
-(defun find-bundle-class (bundle classname &aux bundle-entry)
+;; Like find java class, but looks in a bundle. no-cache means don't
+;; look for it like find-java-class and don't cache it for
+;; find-java-class. Default currently is to do so, but I might change
+;; the default, as it could lead to confusion in the case where both
+;; find-java-class and find-bundle-class are used and there are two
+;; version of the same class in the environment.
+
+(defun find-bundle-class (bundle classname &key no-cache &aux bundle-entry)
   (cond ((stringp bundle) 
 	 (setq bundle-entry (assoc bundle *loaded-osgi-bundles* :test 'equal))
 	 (setq bundle (second bundle-entry)))
@@ -223,13 +207,14 @@
 	 (setq bundle-entry (find bundle *loaded-osgi-bundles* :key 'second))))
   (assert bundle () "No bundle named ~a" bundle)
   ;; we'll allow one bundle to be in the cache. Check if we're the one.
-  (or (let ((found (gethash (string classname) *imports-resolved-classes*)))
+  (or (let ((found (and (not no-cache) (gethash (string classname) *imports-resolved-classes*))))
 	(and (consp found) (eq (car found) bundle) (second found)))
       (let ((found (lookup-class-name classname :table (third bundle-entry))))
 	(if found
 	    (progn 
-	      (unless (gethash classname *imports-resolved-classes*)
-		(setf (gethash classname *imports-resolved-classes*) (cons bundle found)))
+	      (unless no-cache
+		(unless (gethash classname *imports-resolved-classes*)
+		  (setf (gethash classname *imports-resolved-classes*) (cons bundle found))))
 	      (#"loadClass" bundle found))
 	    (#"loadClass" bundle (string classname))))))
   
