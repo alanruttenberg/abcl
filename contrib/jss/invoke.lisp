@@ -1,4 +1,4 @@
-;; Copyright (C) 2005 Alan Ruttenberg
+;; Copyright (C) 2005-2016 Alan Ruttenberg
 ;; Copyright (C) 2011-2 Mark Evenson
 ;;
 ;; Since most of this code is derivative of the Jscheme System, it is
@@ -123,6 +123,8 @@
   (defvar *do-auto-imports* t 
     "Whether to automatically introspect all Java classes on the classpath when JSS is loaded."))
 
+(defvar *loaded-osgi-bundles* nil)
+
 (defvar *muffle-warnings* t) 
 
 (defvar *muffle-warnings* t) 
@@ -130,10 +132,16 @@
 (defvar *imports-resolved-classes* (make-hash-table :test 'equalp))
 
 (defun find-java-class (name)
-  "Returns the java.lang.Class representation of NAME.
+  (let ((maybe (maybe-resolve-class-against-imports name)))
+    (or (and (atom maybe) (not (null maybe))
+	     (jstatic +for-name+ "java.lang.Class" maybe +true+ java::*classloader*))
+	(ignore-errors
+	 (let ((resolved (maybe-resolve-class-against-imports name)))
+	   (if (consp resolved)
+	       (jcall "loadClass" (car resolved) (second resolved)) 
+	       (jclass resolved))))
+	)))
 
-NAME can either string or a symbol according to the usual JSS conventions."
-  (jclass (maybe-resolve-class-against-imports name)))
 
 (defmacro invoke-add-imports (&rest imports)
   "Push these imports onto the search path. If multiple, earlier in list take precedence"
@@ -146,14 +154,28 @@ NAME can either string or a symbol according to the usual JSS conventions."
 (defun clear-invoke-imports ()
   (clrhash *imports-resolved-classes*))
 
+;; Check against *imports-resolved-classes*. If there's a class or a bundle class that wins.
+;; Otherwise look through the bundles and if unique win
+;; Otherwise complain ambiguous
+
 (defun maybe-resolve-class-against-imports (classname)
-  (or (gethash (string classname) *imports-resolved-classes*)
-      (let ((found (lookup-class-name classname)))
-        (if found
-            (progn 
-              (setf (gethash classname *imports-resolved-classes*) found)
-              found)
-            (string classname)))))
+   (or (gethash (string classname) *imports-resolved-classes*)
+       (let ((found (lookup-class-name classname :muffle-warning t)))
+	 (if found
+	     (progn 
+	       (setf (gethash classname *imports-resolved-classes*) found)
+	       found)
+	     (let ((choices
+		     (loop for bundle-entry in *loaded-osgi-bundles*
+			   for found = (lookup-class-name classname :table (third bundle-entry) :muffle-warning  t)
+			   when found collect (list bundle-entry found))))
+	       (cond ((zerop (length choices)) (string classname))
+		     ((= (length choices) 1)
+		      (unless (gethash classname *imports-resolved-classes*)
+			(setf (gethash classname *imports-resolved-classes*) (list (second (caar choices)) (second (car choices)))))
+		      (list (second (caar choices)) (second (car choices))))
+		     (t (error "Ambiguous class name: ~{~a~^, ~}"  
+			       (mapcar (lambda(el) (format "~a in bundle ~a" (second el) (caar el))) choices)))))))))
 
 (defvar *class-name-to-full-case-insensitive* (make-hash-table :test 'equalp))
 
@@ -245,7 +267,7 @@ want to avoid the overhead of the dynamic dispatch."
                (with-constant-signature ,(cdr fname-jname-pairs)
                  ,@body)))))))
 
-(defun lookup-class-name (name &key (muffle *muffle-warnings*))
+(defun lookup-class-name (name &key (table *class-name-to-full-case-insensitive*) (muffle-warning nil))
   (setq name (string name))
   (let* (;; cant (last-name-pattern (#"compile" '|java.util.regex.Pattern| ".*?([^.]*)$"))
          ;; reason: bootstrap - the class name would have to be looked up...
@@ -257,7 +279,7 @@ want to avoid the overhead of the dynamic dispatch."
           (let ((matcher (#0"matcher" last-name-pattern name)))
             (#"matches" matcher)
             (#"group" matcher 1))))
-    (let* ((bucket (gethash last-name *class-name-to-full-case-insensitive*))
+    (let* ((bucket (gethash last-name table))
            (bucket-length (length bucket)))
       (or (find name bucket :test 'equalp)
           (flet ((matches-end (end full test)
@@ -267,7 +289,7 @@ want to avoid the overhead of the dynamic dispatch."
                  (ambiguous (choices)
                    (error "Ambiguous class name: ~a can be ~{~a~^, ~}" name choices)))
             (if (zerop bucket-length)
-		(progn (unless muffle (warn "can't find class named ~a" name)) nil)
+		(unless muffle-warning (warn "can't find class named ~a" name) nil)
                 (let ((matches (loop for el in bucket when (matches-end name el 'char=) collect el)))
                   (if (= (length matches) 1)
                       (car matches)
@@ -276,37 +298,44 @@ want to avoid the overhead of the dynamic dispatch."
                             (if (= (length matches) 1)
                                 (car matches)
                                 (if (= (length matches) 0)
-				    (progn (unless muffle (warn "can't find class named ~a" name)) nil)
+				    (unless muffle-warning (warn "can't find class named ~a" name) nil)
                                     (ambiguous matches))))
                           (ambiguous matches))))))))))
 
 (defun get-all-jar-classnames (jar-file-name)
   (let* ((jar (jnew (jconstructor "java.util.jar.JarFile" (jclass "java.lang.String")) (namestring (truename jar-file-name))))
          (entries (#"entries" jar)))
-    (with-constant-signature ((matcher "matcher" t) (substring "substring")
-                              (jreplace "replace" t) (jlength "length")
+    (with-constant-signature ((matcher "matcher" t) 
                               (matches "matches") (getname "getName" t)
-                              (next "nextElement" t) (hasmore "hasMoreElements")
-                              (group "group"))
+                              (next "nextElement" t) (hasmore "hasMoreElements"))
       (loop while (hasmore entries)
          for name =  (getname (next entries))
-         with class-pattern = (jstatic "compile" "java.util.regex.Pattern" ".*\\.class$")
-         with name-pattern = (jstatic "compile" "java.util.regex.Pattern" ".*?([^.]*)$")
-         when (matches (matcher class-pattern name))
-         collect
-           (let* ((fullname (substring (jreplace name #\/ #\.) 0 (- (jlength name) 6)))
-                  (matcher (matcher name-pattern fullname))
-                  (name (progn (matches matcher) (group matcher 1))))
-             (cons name fullname))
-           ))))
+	    with class-pattern = (jstatic "compile" "java.util.regex.Pattern" ".*\\.class$")
+	    when (matches (matcher class-pattern name))
+	      collect name))))
+
+
+(defun index-class-names (names &key (table (make-hash-table :test 'equalp)))
+  (with-constant-signature ((matcher "matcher" t) (substring "substring")
+			    (jreplace "replace" t) (jlength "length")
+			    (matches "matches") 
+			    (group "group"))
+    (loop for name in names
+	  with class-pattern = (jstatic "compile" "java.util.regex.Pattern" ".*\\.class{0,1}$")
+	  with name-pattern = (jstatic "compile" "java.util.regex.Pattern" ".*?([^.]*)$")
+	  when (matches (matcher class-pattern name))
+	    do
+	       (let* ((fullname (substring (jreplace name #\/ #\.) 0 (- (jlength name) 6)))
+		      (matcher (matcher name-pattern fullname))
+		      (name (progn (matches matcher) (group matcher 1))))
+		 (pushnew fullname (gethash name table) 
+			  :test 'equal))))
+  table)
 
 (defun jar-import (file)
   "Import all the Java classes contained in the pathname FILE into the JSS dynamic lookup cache."
   (when (probe-file file)
-    (loop for (name . full-class-name) in (get-all-jar-classnames file)
-       do 
-         (pushnew full-class-name (gethash name *class-name-to-full-case-insensitive*) 
-                  :test 'equal))))
+    (index-class-names (get-all-jar-classnames file) :table *class-name-to-full-case-insensitive*)))
 
 (defun new (class-name &rest args)
   "Invoke the Java constructor for CLASS-NAME with ARGS.
@@ -396,14 +425,9 @@ associated is used to look up the static FIELD."
 (defun (setf get-java-field) (value object field &optional (try-harder *running-in-osgi*))
   (set-java-field object field value try-harder))
 
-
 (defconstant +for-name+ 
   (jmethod "java.lang.Class" "forName" "java.lang.String" "boolean" "java.lang.ClassLoader"))
 
-(defun find-java-class (name)
-  (or (jstatic +for-name+ "java.lang.Class" 
-               (maybe-resolve-class-against-imports name) +true+ java::*classloader*)
-      (ignore-errors (jclass (maybe-resolve-class-against-imports name)))))
 
 (defmethod print-object ((obj (jclass "java.lang.Class")) stream) 
   (print-unreadable-object (obj stream :identity nil)
@@ -464,11 +488,12 @@ associated is used to look up the static FIELD."
 (defun jclass-method-names (class &optional full)
   (if (java-object-p class)
       (if (equal (jclass-name (jobject-class class)) "java.lang.Class")
-          (setq class (jclass-name class))
-          (setq class (jclass-name (jobject-class class)))))
+	  nil
+          (setq class (jobject-class class)))
+      (setq class (find-java-class class)))
   (union
-   (remove-duplicates (map 'list (if full #"toString" 'jmethod-name) (#"getMethods" (find-java-class class))) :test 'equal)
-   (ignore-errors (remove-duplicates (map 'list (if full #"toString" 'jmethod-name) (#"getConstructors" (find-java-class class))) :test 'equal))))
+   (remove-duplicates (map 'list (if full #"toString" 'jmethod-name) (#"getMethods" class)) :test 'equal)
+   (ignore-errors (remove-duplicates (map 'list (if full #"toString" 'jmethod-name) (#"getConstructors" class)) :test 'equal))))
 
 (defun java-class-method-names (class &optional stream)
   "Return a list of the public methods encapsulated by the JVM CLASS.
@@ -565,83 +590,6 @@ current classpath."
        (pushnew full-class-name (gethash name *class-name-to-full-case-insensitive*) 
                 :test 'equal)))
 
-(defun set-to-list (set)
-  (declare (optimize (speed 3) (safety 0)))
-  (with-constant-signature ((iterator "iterator" t) (hasnext "hasNext") (next "next"))
-    (loop with iterator = (iterator set)
-       while (hasNext iterator)
-       for item = (next iterator)
-       collect item)))
-
-(defun jlist-to-list (list)
-  "Convert a LIST implementing java.util.List to a Lisp list."
-  (declare (optimize (speed 3) (safety 0)))
-  (loop :for i :from 0 :below (jcall "size" list)
-     :collecting (jcall "get" list i)))
-
-(defun jarray-to-list (jarray)
-  "Convert the Java array named by JARRARY into a Lisp list."
-  (declare (optimize (speed 3) (safety 0)))
-  (loop :for i :from 0 :below (jarray-length jarray)
-     :collecting (jarray-ref jarray i)))
-
-;;; Deprecated 
-;;; 
-;;; XXX unclear what sort of list this would actually work on, as it
-;;; certainly doesn't seem to be any of the Java collection types
-;;; (what implements getNext())?
-(defun list-to-list (list)
-  (declare (optimize (speed 3) (safety 0)))
-  (with-constant-signature ((isEmpty "isEmpty") (getfirst "getFirst")
-                            (getNext "getNext"))
-    (loop until (isEmpty list)
-       collect (getFirst list)
-       do (setq list (getNext list)))))
-
-;; Contribution of Luke Hope. (Thanks!)
-
-(defun iterable-to-list (iterable)
-  "Return the items contained the java.lang.Iterable ITERABLE as a list."
-  (declare (optimize (speed 3) (safety 0)))
-  (let ((it (#"iterator" iterable)))
-    (with-constant-signature ((has-next "hasNext")
-                              (next "next"))
-      (loop :while (has-next it)
-         :collect (next it)))))
-
-(defun vector-to-list (vector)
-  "Return the elements of java.lang.Vector VECTOR as a list."
-  (declare (optimize (speed 3) (safety 0)))
-  (with-constant-signature ((has-more "hasMoreElements")
-                            (next "nextElement"))
-    (let ((elements (#"elements" vector)))
-      (loop :while (has-more elements)
-         :collect (next elements)))))
-
-(defun hashmap-to-hashtable (hashmap &rest rest &key (keyfun #'identity) (valfun #'identity) (invert? nil)
-                                                  table 
-                             &allow-other-keys )
-  "Converts the a HASHMAP reference to a java.util.HashMap object to a Lisp hashtable.
-
-The REST paramter specifies arguments to the underlying MAKE-HASH-TABLE call.
-
-KEYFUN and VALFUN specifies functions to be run on the keys and values
-of the HASHMAP right before they are placed in the hashtable.
-
-If INVERT? is non-nil than reverse the keys and values in the resulting hashtable."
-  (let ((keyset (#"keySet" hashmap))
-        (table (or table (apply 'make-hash-table
-                                (loop for (key value) on rest by #'cddr
-                                   unless (member key '(:invert? :valfun :keyfun :table)) 
-                                   collect key and collect value)))))
-    (with-constant-signature ((iterator "iterator" t) (hasnext "hasNext") (next "next"))
-      (loop with iterator = (iterator keyset)
-         while (hasNext iterator)
-         for item = (next iterator)
-         do (if invert?
-                (setf (gethash (funcall valfun (#"get" hashmap item)) table) (funcall keyfun item))
-                (setf (gethash (funcall keyfun item) table) (funcall valfun (#"get" hashmap item)))))
-      table)))
 
 (defun jclass-all-interfaces (class)
   "Return a list of interfaces the class implements"
@@ -697,3 +645,26 @@ If INVERT? is non-nil than reverse the keys and values in the resulting hashtabl
       (apply #'java::%jnew-proxy  interface safe-method-names-and-defs))))
 
 
+(defparameter *regex-chars-needing-escape* 
+  (concatenate 'string (string #\tab) ".[]()\\?*+{}^$&|"))
+
+;; add here even though in util
+(defun split-at-char (string char)
+  (let ((regex (string char)))
+    (when (simple-string-search regex *regex-chars-needing-escape*)
+      (setq regex (system::concatenate-to-string (list "\\" regex))))
+    (with-constant-signature ((split "split") (tostring "toString"))
+      (loop for v across (split string regex) collect (tostring v)))))
+
+(defun all-matches (string regex &rest which)
+  (declare (optimize (speed 3) (safety 0)))
+  (and string
+       (let ((matcher (#"matcher" 
+		       (if (stringp regex)
+			   (#"compile" 'java.util.regex.pattern regex)
+			   regex)
+		       string)))
+	 (with-constant-signature ((mfind "find") (mgroup "group"))
+	   (loop while (mfind matcher) 
+	      collect (loop for g in which collect
+			   (mgroup matcher g)))))))

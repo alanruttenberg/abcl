@@ -8,6 +8,8 @@
                         :components ((:file "packages")
                                      (:file "invoke")
 				     (:file "optimize-java-call")
+				     (:file "collections")
+				     (:file "osgi")
                                      (:file "classpath")
                                      (:file "compat")))))
 
