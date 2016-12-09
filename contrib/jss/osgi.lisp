@@ -7,7 +7,7 @@
 ;; can't
 
 ;; General use:
-;; (add-bundle jar-file)
+;; (add-bundle path-to-jar-file)
 ;; (find-java-class <some class exported from your bundle>)
 ;; Do stuff
 
@@ -20,9 +20,41 @@
 ;; (find-bundle-class bundle classname)
 ;; Class name can be abbreviated as with find-java-class
 
-;; bundle arguments can either be a string result of (#"getSymbolicName" bundle) or a bundle object
-;; loaded bundles are in an association list in *loaded-osgi-bundles*, with each element being 
-;; (name object class-lookup-hash)
+;; bundle arguments can either be a string result of
+;; (#"getSymbolicName" bundle) or a bundle object loaded bundles are
+;; in an association list in *loaded-osgi-bundles*, with each element
+;; being (name object class-lookup-hash)
+
+;; My primary use is to use a project with dependencies that conflict
+;; with the jars I'm using.  Here's an example of how I package that
+;; using maven. It is from module-bundle/pom.xml from the project
+;; https://github.com/alanruttenberg/pagoda (that project uses maven
+;; modules in order to also be able to run the usual packaging)
+;;
+;; <plugin>
+;; boilerplate. The maven-bundle-plugin takes over the package phase from the default assembly plugin
+;; 	<groupId>org.apache.felix</groupId>
+;; 	<artifactId>maven-bundle-plugin</artifactId>
+;; 	<extensions>true</extensions>
+;; 	<configuration>
+;; 	  <descriptorRefs>
+;; This will be the prefix for the jar that is created. It will be prefix-<version>.jar
+;; 	    <descriptorRef>pagoda-bundle</descriptorRef>
+;; 	  </descriptorRefs>
+;; 	  <instructions>
+;; These are the packages that I want to be visible
+;; 	    <Export-Package>uk.ac.ox.cs.pagoda.*,uk.ac.ox.cs.JRDFox.*</Export-Package>
+;; This says to put absolutely every class/jar that they depend on in the created bundle
+;; 	    <Embed-Dependency>*;scope=compile</Embed-Dependency>   
+;; 	    <Embed-Transitive>true</Embed-Transitive>
+;; This avoids having the bundle plugin write dependencies that imply
+;; the jars of the dependency are also bundles. If they aren't then
+;; you get link errors when trying to install the bundle. (sheesh!)
+;; 	    <Import-Package/>
+;; 	  </instructions>
+;; 	</configuration>
+;; </plugin>
+
 
 (defvar *osgi-framework* nil)
 
@@ -34,37 +66,65 @@
    
 (defun ensure-osgi-initialized ()
   (unless *osgi-framework*
+    (when (not (ignore-errors (find-java-class 'org.osgi.framework.launch.FrameworkFactory)))
+      (error "You need to put felix.jar in abcl's classpath. It can be downloaded from http://felix.apache.org/downloads.cgi - download the distribution and get it from the bin directory"))
     (let* ((ffs (#"load" 'ServiceLoader (find-java-class 'org.osgi.framework.launch.FrameworkFactory)))
 	   (factory (#"next" (#"iterator" ffs)))
 	   (framework (#"newFramework" factory +null+)))
       (#"start" framework)
       (setq *osgi-framework* framework))))
 
+;; this: http://lisptips.com/post/11649360174/the-common-lisp-and-unix-epochs is wrong!
+;; Compute the offset using (#"currentTimeMillis" 'system)
 (defun universal-to-bundle-time (universal-time)
-  (* 1000 (- universal-time (encode-universal-time 0 0 0 1 1 1970 0))))
+  "Convert from lisp time to unix time in milliseconds, used by osgi"
+  (let ((offset (- (get-universal-time) (floor (#"currentTimeMillis" 'system) 1000))))
+    (* 1000 (- universal-time offset))))
 
-(defun add-bundle (jar)
+;; Beware the cache. Bundles are installed in a cache folder and
+;; reinstalling them without clearing that will cause a conflict - an
+;; error about duplicates. (Among other things, the installation
+;; unpacks the jars in the bundle and arranges the classpath to use
+;; them).  While I believe that the cache will be refreshed if the
+;; version number on the bundle is changed, it's annoying to do that
+;; during development. Instead, if the bundle is already installed
+;; (available via #"getBundles") then we compare the modification
+;; dates of the installed verison and file-write-date of the jar, and
+;; if the jar is newer uninstall the old bundle and install the new
+;; one.
+
+;; The cache is called felix-cache and gets put in the working
+;; directory, which seems hard to predict if you are working in slime.
+;; TBD: Control where the cache is placed and add some utility fn to
+;; work with it.
+
+;; Name is used to identify the bundle among the loaded bundles. If
+;; not supplied then the "symbolic name" is used, the value of the
+;; manifest header "Bundle-SymbolicName".
+
+(defun add-bundle (jar &key name)
   (ensure-osgi-initialized)
+  (setq jar (namestring (translate-logical-pathname jar)))
   (let* ((bundle-context (#"getBundleContext" *osgi-framework*))
-	 (location (concatenate 'string "file://" (namestring (truename jar))))
-	 (bundle (find location (#"getBundles" bundle-context) :key #"getLocation" :test 'equalp)))
-
+	 (bundle (find jar (#"getBundles" bundle-context) :key #"getLocation" :test 'search)))
+    (cl-user::print-db bundle (and bundle(#"getLastModified" bundle)  (universal-to-bundle-time (file-write-date jar))))
     (when (or (not bundle)
 	      (< (#"getLastModified" bundle) 
 		 (universal-to-bundle-time (file-write-date jar))))
       (when bundle
 	(warn "reinstalling bundle ~a" jar)
 	(#"uninstall" bundle))
-      (setq bundle (#"installBundle" bundle-context (concatenate 'string "file:" (namestring (truename jar))))))
+      (setq bundle (#"installBundle" bundle-context (concatenate 'string "file:" jar))))
 
     (#"start" bundle)
-    (let* ((index (index-class-names (bundle-exports-from-manifest (jar-manifest jar) bundle)))
-	   ;(struct (make-osgi-bundle :name (#"getSymbolicName" bundle) :bundle bundle :index index :source jar))
-	   )
-      (remove (#"getSymbolicName" bundle) *loaded-osgi-bundles* :test 'equalp :key 'car)
-      (push (list (#"getSymbolicName" bundle) bundle index) *loaded-osgi-bundles*)
+    (let ((name (or name (#"getSymbolicName" bundle))))
+      (let* ((index (index-class-names (bundle-exports-from-manifest (jar-manifest jar) bundle)))
+					;(struct (make-osgi-bundle :name (#"getSymbolicName" bundle) :bundle bundle :index index :source jar))
+	     )
+	(remove name *loaded-osgi-bundles* :test 'equalp :key 'car)
+	(push (list name bundle index) *loaded-osgi-bundles*)
 
-      bundle)))
+	bundle))))
 
 (defun bundle-headers (bundle)
   (loop with headers = (#"getHeaders" bundle)
