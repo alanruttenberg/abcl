@@ -1,10 +1,10 @@
 (in-package :jss)
 
 ;; This is the start of an extension of JSS to be able to use OSGI
-;; Bundles.  Currently one can take advantage of the class hiding
-;; aspect - with the visible packages listed in a JAR manifest
-;; "Exported-Packages", those classes can be accessed while the other
-;; can't
+;; Bundles.  Currently one can, at least, take advantage of the class
+;; hiding aspect - with the visible packages listed in a JAR manifest
+;; "Exported-Packages", those classes can be accessed while the others
+;; can't.
 
 ;; General use:
 ;; (add-bundle path-to-jar-file)
@@ -58,23 +58,6 @@
 
 (defvar *osgi-framework* nil)
 
-(defun ensure-osgi-initialized ()
-  (unless *osgi-framework*
-    (when (not (ignore-errors (find-java-class 'org.osgi.framework.launch.FrameworkFactory)))
-      (error "You need to put felix.jar in abcl's classpath. It can be downloaded from http://felix.apache.org/downloads.cgi - download the distribution and get it from the bin directory"))
-    (let* ((ffs (#"load" 'ServiceLoader (find-java-class 'org.osgi.framework.launch.FrameworkFactory)))
-	   (factory (#"next" (#"iterator" ffs)))
-	   (framework (#"newFramework" factory +null+)))
-      (#"start" framework)
-      (setq *osgi-framework* framework))))
-
-;; this: http://lisptips.com/post/11649360174/the-common-lisp-and-unix-epochs is wrong!
-;; Compute the offset using (#"currentTimeMillis" 'system)
-(defun universal-to-bundle-time (universal-time)
-  "Convert from lisp time to unix time in milliseconds, used by osgi"
-  (let ((offset (- (get-universal-time) (floor (#"currentTimeMillis" 'system) 1000))))
-    (* 1000 (- universal-time offset))))
-
 ;; Beware the cache. Bundles are installed in a cache folder and
 ;; reinstalling them without clearing that will cause a conflict - an
 ;; error about duplicates. (Among other things, the installation
@@ -87,21 +70,87 @@
 ;; if the jar is newer uninstall the old bundle and install the new
 ;; one.
 
-;; The cache is called felix-cache and gets put in the working
-;; directory, which seems hard to predict if you are working in slime.
-;; TBD: Control where the cache is placed and add some utility fn to
-;; work with it.
+;; The cache location is taken from *osgi-cache-location*. The current
+;; location can be had by (osgi-cache-path) You can ensure a clean
+;; cache by calling (ensure-osgi-framework :clean-cache t) before
+;; calling add-bundle, or set *osgi-clean-cache-on-start* to t
 
-;; Name is used to identify the bundle among the loaded bundles. If
+;; arg name is used to identify the bundle among the loaded bundles. If
 ;; not supplied then the "symbolic name" is used, the value of the
 ;; manifest header "Bundle-SymbolicName".
+
+(defvar *osgi-cache-location* (namestring (merge-pathnames 
+					   (make-pathname :directory '(:relative "abcl-felix-cache"))
+					   (user-homedir-pathname))))
+
+;;http://felix.apache.org/documentation/subprojects/apache-felix-framework/apache-felix-framework-configuration-properties.html
+
+(defvar *osgi-configuration* `(("org.osgi.framework.storage" ,*osgi-cache-location*)))
+
+(defvar *osgi-clean-cache-on-start* nil)
+
+;; http://stackoverflow.com/questions/17902795/convert-jarentry-to-file
+
+;; if we're loading from a jar, unzip felix.jar to a temp file and add
+;; to classpath, otherwise add the jar
+(defun add-felix-to-classpath ()
+  (let* ((source (second (car (get 'jss::invoke 'sys::source))))
+	 (loading-from-jar? (consp (pathname-device source))))
+    (if loading-from-jar?
+	(let* ((file (#"createTempFile" 'File "felix" ".jar"))
+	       (out (new 'FileOutputStream file))
+	       (buffer (jnew-array "byte" 81920))
+	       (jar (new 'jarfile (namestring (car (pathname-device source)))))
+	       (stream (#"getInputStream" jar (#"getEntry" jar "contrib/jss/felix.jar"))))
+	  (loop for count = (#"read" stream buffer)
+		while (> count 0)
+		do (#"write" out buffer 0 count))
+	  (#"close" stream)
+	  (#"close" out)
+	  (add-to-classpath (#"toString" file)))
+	(add-to-classpath (namestring (merge-pathnames "felix.jar"  source))))))
+
+;; configuration properties are set last to first, so you can prepend overrides to *osgi-configuration*
+(defun ensure-osgi-initialized (&key (configuration *osgi-configuration*) 
+				  (empty-cache *osgi-clean-cache-on-start*))
+  (unless *osgi-framework*
+    (let ((map (new 'java.util.properties)))
+      (loop for (prop val) in (reverse configuration) do (#"setProperty" map prop val))
+      (when empty-cache
+	  (#"setProperty" map "org.osgi.framework.storage.clean" "onFirstInit"))
+      (when (not (ignore-errors (find-java-class 'org.osgi.framework.launch.FrameworkFactory)))
+	(add-felix-to-classpath))
+      (let* ((framework-factory-class (find-java-class 'org.osgi.framework.launch.FrameworkFactory))
+	     (ffs (#"load" 'ServiceLoader framework-factory-class (#"getClassLoader" framework-factory-class)))
+	     (factory (#"next" (#"iterator" ffs)))
+	     (framework (#"newFramework" factory map)))
+	(#"start" framework)
+	(setq *osgi-framework* framework)))))
+
+(defun stop-osgi ()
+  (#"stop" *osgi-framework*)
+  (setq *osgi-framework* nil))
+
+(defun get-osgi-framework-property (property)
+  (ensure-osgi-initialized)
+  (#"getProperty" (#"getBundleContext" *osgi-framework*) property))
+
+(defun osgi-cache-path ()
+  (ensure-osgi-initialized)
+  (get-osgi-framework-property "org.osgi.framework.storage"))
+			       
+;; this: http://lisptips.com/post/11649360174/the-common-lisp-and-unix-epochs is wrong!
+;; Compute the offset using (#"currentTimeMillis" 'system)
+(defun universal-to-bundle-time (universal-time)
+  "Convert from lisp time to unix time in milliseconds, used by osgi"
+  (let ((offset (- (get-universal-time) (floor (#"currentTimeMillis" 'system) 1000))))
+    (* 1000 (- universal-time offset))))
 
 (defun add-bundle (jar &key name)
   (ensure-osgi-initialized)
   (setq jar (namestring (translate-logical-pathname jar)))
   (let* ((bundle-context (#"getBundleContext" *osgi-framework*))
 	 (bundle (find jar (#"getBundles" bundle-context) :key #"getLocation" :test 'search)))
-    (cl-user::print-db bundle (and bundle(#"getLastModified" bundle)  (universal-to-bundle-time (file-write-date jar))))
     (when (or (not bundle)
 	      (< (#"getLastModified" bundle) 
 		 (universal-to-bundle-time (file-write-date jar))))
@@ -135,10 +184,9 @@
 	  for es = (#"entrySet" (#"getAttributes" cap)) 
 	  collect (list* namespace cap (mapcar #"getValue" (set-to-list es))))))
 
-;; This is ugly but will do until there's a better way
-;; The exported packages are listed in the jar manifest on the key "Export-Package"
-;; Lines are separated by #\return with continuation lines starting with a space.
-;; Once that is fixed, the format is a concatenation of entries like the below
+;; This is ugly but will do until there's a better way The exported
+;; packages are listed as the value of the header "Export-Package" The
+;; format is a concatenation of entries like the below
 
 ;; package;key="...","..";key2="",
 ;; package2,
@@ -155,6 +203,7 @@
 ;; match on the prefix, we throw away everything but the prefix. This
 ;; is done by first sorting, then taking an element and comparing it
 ;; to subsequent ones. When the first start the other we toss the other.
+;; Not really necessary - not doing it would just be wasted work.
 
 ;; Step 3: The bundlewiring interface lets one iterate over all
 ;; 'resources', which are like entries in a jar, some of which are
@@ -197,7 +246,7 @@
 ;; find-java-class. Default currently is to do so, but I might change
 ;; the default, as it could lead to confusion in the case where both
 ;; find-java-class and find-bundle-class are used and there are two
-;; version of the same class in the environment.
+;; versions of the same class in the environment.
 
 (defun find-bundle-class (bundle classname &key no-cache &aux bundle-entry)
   (cond ((stringp bundle) 
