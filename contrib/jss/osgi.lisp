@@ -240,7 +240,13 @@
 		 (#"toString" (#"getEntry" bundle entry))
 		 (search path url :test 'char=)))))))
 
-
+(defun dwim-find-bundle-entry (name)
+  (let ((string (string name)))
+    (let ((candidates (remove-if-not (lambda(e) (search string (car e) :test 'string-equal))  jss::*loaded-osgi-bundles*)))
+      (cond ((= (length candidates) 0) (error "Bundle ~a not found" name))
+	    ((= (length candidates) 1) (car candidates))
+	    (t (error "Ambiguous \"~a\" could mean ~{~a~^, ~}" (mapcar 'car candidates)))))))
+    
 ;; Like find java class, but looks in a bundle. no-cache means don't
 ;; look for it like find-java-class and don't cache it for
 ;; find-java-class. Default currently is to do so, but I might change
@@ -249,8 +255,8 @@
 ;; versions of the same class in the environment.
 
 (defun find-bundle-class (bundle classname &key no-cache &aux bundle-entry)
-  (cond ((stringp bundle) 
-	 (setq bundle-entry (assoc bundle *loaded-osgi-bundles* :test 'equal))
+  (cond ((or (stringp bundle) (symbolp bundle) )
+	 (setq bundle-entry (dwim-find-bundle-entry bundle))
 	 (setq bundle (second bundle-entry)))
 	((java-object-p bundle)
 	 (setq bundle-entry (find bundle *loaded-osgi-bundles* :key 'second))))
