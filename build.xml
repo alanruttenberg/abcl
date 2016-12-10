@@ -589,6 +589,7 @@ from ${abcl.home.dir}
     <patternset id="abcl.contrib.source">
           <include name="**/*.asd"/>
           <include name="**/*.lisp"/>
+          <include name="**/felix.jar"/>
           <include name="**/README.markdown"/>
     </patternset>
 
