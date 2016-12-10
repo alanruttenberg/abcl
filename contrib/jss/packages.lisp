@@ -12,6 +12,13 @@
 
    #:invoke-add-imports
    #:find-java-class
+
+   #:find-bundle-class
+   #:ensure-osgi-initialized
+   #:*osgi-cache-location*
+   #:*osgi-configuration*
+   #:*osgi-clean-cache-on-start*
+   
    #:jcmn #:java-class-method-names
    #:japropos
    #:new 
