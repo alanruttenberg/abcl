@@ -132,15 +132,17 @@
 (defvar *imports-resolved-classes* (make-hash-table :test 'equalp))
 
 (defun find-java-class (name)
-  (let ((maybe (maybe-resolve-class-against-imports name)))
-    (or (and (atom maybe) (not (null maybe))
-	     (jstatic +for-name+ "java.lang.Class" maybe +true+ java::*classloader*))
-	(ignore-errors
-	 (let ((resolved (maybe-resolve-class-against-imports name)))
-	   (if (consp resolved)
-	       (jcall "loadClass" (car resolved) (second resolved)) 
-	       (jclass resolved))))
-	)))
+  (if (consp name) ;; invoke-restargs first calls maybe-resolve-class-against-imports, and this on the result.
+      (jcall "loadClass" (car name) (second name))
+      (let ((maybe (maybe-resolve-class-against-imports name)))
+	(or (and (atom maybe) (not (null maybe))
+		 (jstatic +for-name+ "java.lang.Class" maybe +true+ java::*classloader*))
+	    (ignore-errors
+	     (let ((resolved (maybe-resolve-class-against-imports name)))
+	       (if (consp resolved)
+		   (jcall "loadClass" (car resolved) (second resolved)) 
+		   (jclass resolved))))
+	    ))))
 
 
 (defmacro invoke-add-imports (&rest imports)
@@ -193,9 +195,9 @@
   (let* ((object-as-class-name 
           (if (symbolp object) (maybe-resolve-class-against-imports object)))
          (object-as-class 
-          (if object-as-class-name (find-java-class object-as-class-name))))
+	   (if object-as-class-name (find-java-class object-as-class-name))))
     (if (eq method 'new)
-        (apply #'jnew (or object-as-class-name object) args)
+        (apply #'jnew  (or object-as-class object-as-class-name object) args)
         (if raw?
             (if (symbolp object)
                 (apply #'jstatic-raw method object-as-class  args)
@@ -473,17 +475,22 @@ associated is used to look up the static FIELD."
 
 (defun japropos (string)
   "Output the names of all Java class names loaded in the current process which match STRING.."
-  (setq string (string string))
-  (let ((matches nil))
-    (maphash (lambda(key value) 
-               (declare (ignore key))
-               (loop for class in value
-                  when (search string class :test 'string-equal)
-                  do (pushnew (list class "Java Class") matches :test 'equal)))
-             *class-name-to-full-case-insensitive*)
-    (loop for (match type) in (sort matches 'string-lessp :key 'car)
-       do (format t "~a: ~a~%" match type))
-    ))
+  (flet ((searchit (table &optional bundle-name)
+	   (let ((bundle? (if bundle-name (format nil ", Bundle: ~a" bundle-name) "")))
+	     (setq string (string string))
+	     (let ((matches nil))
+	       (maphash (lambda(key value) 
+			  (declare (ignore key))
+			  (loop for class in value
+				when (search string class :test 'string-equal)
+				  do (pushnew (list class "Java Class") matches :test 'equal)))
+			table)
+	       (loop for (match type) in (sort matches 'string-lessp :key 'car)
+		     do (format t "~a: ~a~a~%" match type bundle?))
+	       ))))
+    (searchit *class-name-to-full-case-insensitive*)
+    (loop for (name nil table) in *loaded-osgi-bundles*
+	  do (searchit table name))))
 
 (defun jclass-method-names (class &optional full)
   (if (java-object-p class)
