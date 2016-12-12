@@ -13,6 +13,7 @@
    #:invoke-add-imports
    #:find-java-class
 
+   #:add-bundle
    #:find-bundle-class
    #:ensure-osgi-initialized
    #:*osgi-cache-location*
