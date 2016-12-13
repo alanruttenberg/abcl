@@ -33,23 +33,24 @@
 
 
 
-(define-compiler-macro get-java-field
-    (&whole form class field)
-  "Compile constant class/field to jfield at compile time"
-  (cond ((and (constantp class) (constantp field) (ignore-errors (find-java-class (eval class))))
-	 (let ((jfield (ignore-errors (get-java-field (eval class) (eval field)))))
-	   (if field
-	       `(load-time-value ,jfield)
-	       form)))
-	(t form)))
+;; This one breaks because it can't make-load-form
+;; (define-compiler-macro get-java-field
+;;     (&whole form class field)
+;;   "Compile constant class/field to jfield at compile time"
+;;   (cond ((and (constantp class) (constantp field) (ignore-errors (find-java-class (eval class))))
+;; 	 (let ((jfield (ignore-errors (get-java-field (eval class) (eval field)))))
+;; 	   (if field
+;; 	       `(load-time-value ,jfield)
+;; 	       form)))
+;; 	(t form)))
 	 
-(define-compiler-macro find-java-class 
-    (&whole form name)
-  (if (constantp name)
-      (let ((class (ignore-errors (jclass (maybe-resolve-class-against-imports (eval name))))))
-	(if class
-	    `(load-time-value ,class)
-	    form))
-      form))
+;; (define-compiler-macro find-java-class 
+;;     (&whole form name)
+;;   (if (constantp name)
+;;       (let ((class (ignore-errors (jclass (maybe-resolve-class-against-imports (eval name))))))
+;; 	(if class
+;; 	    `(load-time-value ,class)
+;; 	    form))
+;;       form))
 
 
