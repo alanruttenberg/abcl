@@ -495,7 +495,6 @@ from ${abcl.home.dir}
       <mkdir dir="${dist.dir}"/>
       <jar destfile="${abcl-aio.jar.path}"
            compress="true"
-           update="true"
            basedir="${build.classes.dir}">
 	<fileset dir="${src.dir}">
           <patternset refid="abcl.objects"/>
