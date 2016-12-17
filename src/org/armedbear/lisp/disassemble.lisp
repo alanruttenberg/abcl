@@ -145,7 +145,10 @@
 (defun fasl-compiled-closure-class-bytes (function)
   (let* ((loaded-from (get-loaded-from function))
 	 (class-name (subseq (java:jcall "getName" (java:jcall "getClass" function)) (length "org.armedbear.lisp.")))
-	 (url (java:jnew "java.net.URL" (format nil "jar:file:~a!/~a.cls" (namestring loaded-from) class-name))))
+	 (url (java:jnew "java.net.URL" 
+			 (namestring (make-pathname :directory (pathname-directory loaded-from)
+						    :device (pathname-device loaded-from)
+						    :name class-name :type "cls")))))
     (java:jstatic "toByteArray" "com.google.common.io.ByteStreams" (java:jcall "openStream" url))))
 
 ;; closure bindings
