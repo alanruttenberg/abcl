@@ -131,15 +131,15 @@
 
 (defparameter +propertyList+ 
   (load-time-value
-   (let ((it (find "propertyList" (jcall "getDeclaredFields" (jclass "org.armedbear.lisp.Function")) :key (lambda(e)(jcall "getName" e)) :test 'equal)))
-     (jcall "setAccessible" it t)
+   (let ((it (find "propertyList" (java::jcall "getDeclaredFields" (java::jclass "org.armedbear.lisp.Function")) :key (lambda(e)(java::jcall "getName" e)) :test 'equal)))
+     (java::jcall "setAccessible" it t)
      it)))
 
 (defun function-plist (function)
-  (jcall "get" +propertylist+ function))
+  (java::jcall "get" +propertylist+ function))
 
 (defun (setf function-plist) (new function)
-  (jcall "set" +propertylist+ function new))
+  (java::jcall "set" +propertylist+ function new))
 
 ;; PITA. make loadedFrom public
 (defun get-loaded-from (function)
