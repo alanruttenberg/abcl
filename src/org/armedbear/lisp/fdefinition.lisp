@@ -129,6 +129,8 @@ present.  Will probably just filter when presenting in slime.
   (declare (ignore name))
   nil)
 
+(defvar *fset-hooks* nil)
+
 (defun fset (name function &optional source-position arglist documentation)
   (cond ((symbolp name)
          (check-redefinition name)
@@ -146,6 +148,7 @@ present.  Will probably just filter when presenting in slime.
          (require-type name '(or symbol (cons (eql setf) (cons symbol null))))))
   (when (functionp function) ; FIXME Is this test needed?
     (%set-lambda-name function name))
+  (dolist (hook *fset-hooks*) (ignore-errors (funcall hook name function)))
   (trace-redefined-update name function)
   function)
 

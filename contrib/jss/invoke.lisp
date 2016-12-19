@@ -483,7 +483,7 @@ current classpath."
         (format stream "~a~%" method))
       (jclass-method-names class)))
 
-(setf (symbol-function 'jcmn) 'java-class-method-names)
+(setf (symbol-function 'jcmn) #'java-class-method-names)
 
 (defun path-to-class (classname)
   (let ((full (lookup-class-name classname)))
