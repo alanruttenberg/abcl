@@ -132,7 +132,7 @@ present.  Will probably just filter when presenting in slime.
   (declare (ignore name))
   nil)
 
-(%defvar *fset-hooks* nil)
+(%defvar '*fset-hooks* nil)
 
 (defun fset (name function &optional source-position arglist documentation)
   (cond ((symbolp name)
