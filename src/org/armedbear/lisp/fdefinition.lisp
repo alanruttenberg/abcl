@@ -96,17 +96,19 @@ These values follow SBCL'S implemenation in SLIME
 c.f. <https://github.com/slime/slime/blob/bad2acf672c33b913aabc1a7facb9c3c16a4afe9/swank/sbcl.lisp#L748>
 
 "
-;; Modifications are in two places, one at the definitions, calling
-;; record-source-information-by-type and then again in the file-compiler,
-;; which writes forms like
+#|
+Modifications are in two places, one at the definitions, calling
+record-source-information-by-type and then again in the file-compiler,
+which writes forms like
 
-;; (put 'source name (cons (list type pathname position) (get 'source name)))
+(put 'source name (cons (list type pathname position) (get 'source name)))
 
-;; In theory this can lead to redundancy if a fasl is loaded again and
-;; again. I'm not sure how to fix this yet. Forms in the __loader__ get
-;; called early in build when many of the sequence functions aren't
-;; present.  Will probably just filter when presenting in slime.
+In theory this can lead to redundancy if a fasl is loaded again and
+again. I'm not sure how to fix this yet. Forms in the __loader__ get
+called early in build when many of the sequence functions aren't
+present.  Will probably just filter when presenting in slime.
 
+|#  
     (unless source-pathname
       (setf source-pathname (or *source* :top-level)))
     (unless source-position
@@ -130,9 +132,7 @@ c.f. <https://github.com/slime/slime/blob/bad2acf672c33b913aabc1a7facb9c3c16a4af
   (declare (ignore name))
   nil)
 
-;; too early for defvar, apparently. ABCL build craps out if I use it.
-(eval-when (:compile-toplevel :execute :load-toplevel) 
-  (%defvar '*fset-hooks* nil))
+(%defvar '*fset-hooks* nil)
 
 (defun fset (name function &optional source-position arglist documentation)
   (cond ((symbolp name)
@@ -151,8 +151,7 @@ c.f. <https://github.com/slime/slime/blob/bad2acf672c33b913aabc1a7facb9c3c16a4af
          (require-type name '(or symbol (cons (eql setf) (cons symbol null))))))
   (when (functionp function) ; FIXME Is this test needed?
     (%set-lambda-name function name))
-  (and (boundp '*fset-hooks*)
-       (dolist (hook *fset-hooks*) (ignore-errors (funcall hook name function))))
+  (dolist (hook *fset-hooks*) (ignore-errors (funcall hook name function)))
   (trace-redefined-update name function)
   function)
 
