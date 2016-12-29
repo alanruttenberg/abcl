@@ -135,6 +135,32 @@
    fns
    definer))
 
+(defvar *function-class-names* (make-hash-table :test 'equalp)
+  "Table mapping java class names of function classes to their function. Value is either symbol or (:in symbol) if an internal function")
+
+(defun index-function-class-names (&optional (fns :all))
+  "Create a table mapping class names to function, for cases where the class name appears in backtrace (although perhaps that's a bug?)"
+  (if (eq fns :all)
+      (dolist (p (list-all-packages))
+	(do-symbols (s p)
+	  (when (fboundp s)
+	    (setf (gethash (#"getName" (#"getClass" (symbol-function s))) *function-class-names*) s))))
+      (dolist (s fns)
+	(setf (gethash (#"getName" (#"getClass" (if (symbolp s) (symbol-function s) s))) *function-class-names*) s)))
+  (foreach-internal-field 
+   (lambda(top internal)
+     (let ((fn (if (symbolp top) (symbol-function top) top)))
+     (unless (eq fn internal)
+       (setf (gethash (#"getName" (#"getClass" internal)) *function-class-names*)
+	     `(:in ,top)))))
+   nil
+   fns
+   nil))
+
+(defun java-class-lisp-function (class-name)
+  "Return either function-name or (:in function-name) or nil if class isn't that of lisp function"
+  (gethash class-name *function-class-names* ))
+
 (defun annotate-clos-methods (&optional (which :all))
   "Iterate over all clos methods, marking method-functions and
 method-fast-functions with the function plist
