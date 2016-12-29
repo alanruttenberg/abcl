@@ -317,6 +317,7 @@ above have used annotate local functions"
     (annotate-internal-functions)
     (annotate-clos-methods)
     (annotate-clos-slots)
+    (index-function-class-names)
     )
   (annotate-internal-functions (list name)))
 
