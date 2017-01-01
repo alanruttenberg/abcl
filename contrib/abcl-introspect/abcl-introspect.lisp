@@ -135,7 +135,7 @@
    fns
    definer))
 
-(defvar *function-class-names* (make-hash-table :test 'equalp)
+(defvar *function-class-names* (make-hash-table :test 'equalp :weakness :value)
   "Table mapping java class names of function classes to their function. Value is either symbol or (:in symbol) if an internal function")
 
 (defun index-function-class-names (&optional (fns :all))
@@ -143,16 +143,19 @@
   (if (eq fns :all)
       (dolist (p (list-all-packages))
 	(do-symbols (s p)
-	  (when (fboundp s)
-	    (setf (gethash (#"getName" (#"getClass" (symbol-function s))) *function-class-names*) s))))
+	  (when (and (eq (symbol-package s) p) (fboundp s)
+		     ;; system is touchy about #'autoload 
+		     (not (eq (symbol-function s) #'autoload)))
+	    (unless (#"matches" (#"getName" (#"getClass" (symbol-function s))) ".*Closure$")
+		(setf (gethash (#"getName" (#"getClass" (symbol-function s))) *function-class-names*) (symbol-function s))))))
       (dolist (s fns)
 	(setf (gethash (#"getName" (#"getClass" (if (symbolp s) (symbol-function s) s))) *function-class-names*) s)))
   (foreach-internal-field 
    (lambda(top internal)
      (let ((fn (if (symbolp top) (symbol-function top) top)))
-     (unless (eq fn internal)
-       (setf (gethash (#"getName" (#"getClass" internal)) *function-class-names*)
-	     `(:in ,top)))))
+	   (unless (or (eq fn internal) (#"matches" (#"getName" (#"getClass" fn)) ".*Closure$"))
+	     (setf (gethash (#"getName" (#"getClass" internal)) *function-class-names*)
+		   internal))))
    nil
    fns
    nil))
@@ -223,27 +226,32 @@ object. This gets called once."
 named function or the values on the function-plist that functions
 above have used annotate local functions"
   (maybe-jss-function function)
-  (let ((plist (sys::function-plist function)))
-    (cond ((setq it (getf plist :internal-to-function))
-	   `(:local-function ,@(if (java::jcall "getLambdaName" function) 
-				   (list (java::jcall "getLambdaName" function))
-				   (if (getf plist :jss-function)
-				       (list (concatenate 'string "#\"" (getf plist :jss-function) "\"")))
-				   )
-			     :in ,@(if (typep it 'mop::standard-method)
-				       (cons :method (method-spec-list it))
-				       (list it))))
-	  ((setq it (getf plist :method-function))
-	   (cons :method-function (sys::method-spec-list it)))	   
-	  ((setq it (getf plist :method-fast-function))
-	   (cons :method-fast-function (sys::method-spec-list it)))
-	  ((setq it (getf plist :initfunction))
-	   (let ((class (and (slot-boundp it 'allocation-class) (slot-value it 'allocation-class))))
-	     (list :slot-initfunction (slot-value it 'name ) :for (if class (class-name class) '??))))
-	  (t (or (nth-value 2 (function-lambda-expression function))
-		 (and (not (compiled-function-p function))
-		      `(:anonymous-interpreted-function))
-		 (function-name-by-where-loaded-from function))))))
+  (let ((interpreted (not (compiled-function-p function))))
+    (let ((plist (sys::function-plist function)))
+      (cond ((setq it (getf plist :internal-to-function))
+	     `(:local-function ,@(if (java::jcall "getLambdaName" function) 
+				     (list (java::jcall "getLambdaName" function))
+				     (if (getf plist :jss-function)
+					 (list (concatenate 'string "#\"" (getf plist :jss-function) "\"")))
+				     )
+			       ,@(if interpreted '((interpreted)))
+			       :in ,@(if (typep it 'mop::standard-method)
+					 (cons :method (method-spec-list it))
+					 (list it))))
+	    ((setq it (getf plist :method-function))
+	     `(:method-function ,@(if interpreted '((interpreted))) ,@(sys::method-spec-list it)))	   
+	    ((setq it (getf plist :method-fast-function))
+	     `(:method-fast-function ,@(if interpreted '("(interpreted)")) ,@(sys::method-spec-list it)))
+	    ((setq it (getf plist :initfunction))
+	     (let ((class (and (slot-boundp it 'allocation-class) (slot-value it 'allocation-class))))
+	       `(:slot-initfunction ,(slot-value it 'name ) ,@(if interpreted '((interpreted))) :for ,(if class (class-name class) '??))))
+	    (t (or (and (nth-value 2 (function-lambda-expression function))
+			(if interpreted
+			    `(,(nth-value 2 (function-lambda-expression function)) ,'(interpreted))
+			(nth-value 2 (function-lambda-expression function))))    
+		   (and (not (compiled-function-p function))
+			`(:anonymous-interpreted-function))
+		   (function-name-by-where-loaded-from function)))))))
 
 (defun function-name-by-where-loaded-from (function)
   "name of last resource - used the loaded-from field from the function to construct the name"
@@ -255,7 +263,7 @@ above have used annotate local functions"
 			  ,@(if where (list (list :from where))))))
   
 (defun maybe-jss-function (f)
-  "Determing if function is something list #"foo" called as a
+  "Determing if function is something list #\"foo\" called as a
   function. If so add to function internal plist :jss-function and the
   name of the java methods"
   (and (find-package :jss)
@@ -311,7 +319,6 @@ above have used annotate local functions"
   "Called at the end of fset. If function annotations have not yet
   been added, add local function annotations to all functions. If not,
   just add annotations to function specified in the arglist"
-  (declare (ignore function))
   (when *annotate-function-backlog?* 
     (setq *annotate-function-backlog?* nil)
     (annotate-internal-functions)
@@ -319,6 +326,7 @@ above have used annotate local functions"
     (annotate-clos-slots)
     (index-function-class-names)
     )
+  (index-function-class-names (list function))
   (annotate-internal-functions (list name)))
 
 ;; Here we hook into clos in order to have method and slot functions
@@ -336,7 +344,62 @@ above have used annotate local functions"
 (pushnew 'fset-hook-annotate-internal-function sys::*fset-hooks*)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-		 
+
+;; I don't understand the algorithm that sys:backtrace uses, which seems
+;; broken, so here's an alternative.
+
+;; The lisp portion of the stack backtrace is computed as it is now. It
+;; will have invoke-debugger at the top then some java stack frames that
+;; abcl pushes (the "i don't understand") and then the rest of the
+;; backtrace. We trim that by popping off the invoke-debugger and java
+;; stack frames, leaving just lisp frames.
+
+;; If there's a java exception. In that case we compare the stacktrace of
+;; the exception to the java stack trace and grab the top part of it
+;; that's unique to the exception. We prepend this to the lisp stack
+;; trace.
+
+;; The result will be that we will *not* see the call to invoke debugger,
+;; or any of the swank handling, just what (I think) is relative.
+
+;; What still needs to be investigated is how this plays in cases where
+;; there are callbacks to lisp from java.
+
+;; A good test to see the difference would be 
+
+;; (#"replaceAll" "" "(?o" "")
+
+;; which should now show the calls within the regex code leading to
+;; the exception.
+
+(defvar *use-old-backtrace* nil "set to t to fall back to the standard backtrace")
+
+(defun save-backtrace-for-swank (condition)
+  (if *use-old-backtrace*
+      (sys::backtrace) 
+      (let ((lisp-stack-trace (#"backtrace" (threads::current-thread) 0)))
+	(setq lisp-stack-trace
+	      (subseq lisp-stack-trace 
+		      (position-if (lambda(e) (eq (car (sys::frame-to-list e)) 'invoke-debugger)) lisp-stack-trace)))
+	(setq lisp-stack-trace
+	      (subseq lisp-stack-trace
+		      (position 'sys::lisp-stack-frame lisp-stack-trace :key 'type-of :start 1)))
+	(if (typep condition 'java::java-exception)
+	    (progn
+	      (let* ((exception-stack-trace (coerce (#"getStackTrace" (java-exception-cause condition)) 'list))
+		     (debugger-stack-trace 
+		       (coerce (subseq exception-stack-trace
+				       (position (#"getName" (#"getClass" #'invoke-debugger))
+						 (#"getStackTrace" (#"currentThread" 'Thread))
+						 :key #"getClassName"
+						 :test 'string-equal))
+			       'list)))
+		(loop for top in exception-stack-trace
+		      until (find top debugger-stack-trace :test (lambda(a b ) (eql (#"hashCode" a) (#"hashCode" b))))
+		      collect (new 'JavaStackFrame top) into keep
+		      finally (return (append keep (list (new 'JavaStackFrame top)) lisp-stack-trace)))))
+	    lisp-stack-trace))))
+
 (defun get-pid ()
   "Get the process identifier of this lisp process. Used to be in
   slime but generally useful, so now back in abcl proper."
