@@ -373,32 +373,51 @@ above have used annotate local functions"
 ;; the exception.
 
 (defvar *use-old-backtrace* nil "set to t to fall back to the standard backtrace")
+(defvar *hide-swank-frames* t)
 
 (defun save-backtrace-for-swank (condition)
-  (if *use-old-backtrace*
-      (sys::backtrace) 
-      (let ((lisp-stack-trace (#"backtrace" (threads::current-thread) 0)))
-	(setq lisp-stack-trace
-	      (subseq lisp-stack-trace 
-		      (position-if (lambda(e) (eq (car (sys::frame-to-list e)) 'invoke-debugger)) lisp-stack-trace)))
-	(setq lisp-stack-trace
-	      (subseq lisp-stack-trace
-		      (position 'sys::lisp-stack-frame lisp-stack-trace :key 'type-of :start 1)))
-	(if (typep condition 'java::java-exception)
-	    (progn
-	      (let* ((exception-stack-trace (coerce (#"getStackTrace" (java-exception-cause condition)) 'list))
-		     (debugger-stack-trace 
-		       (coerce (subseq exception-stack-trace
-				       (position (#"getName" (#"getClass" #'invoke-debugger))
-						 (#"getStackTrace" (#"currentThread" 'Thread))
-						 :key #"getClassName"
-						 :test 'string-equal))
-			       'list)))
-		(loop for top in exception-stack-trace
-		      until (find top debugger-stack-trace :test (lambda(a b ) (eql (#"hashCode" a) (#"hashCode" b))))
-		      collect (new 'JavaStackFrame top) into keep
-		      finally (return (append keep (list (new 'JavaStackFrame top)) lisp-stack-trace)))))
-	    lisp-stack-trace))))
+  (let ((sldb-loop (and (find-package 'swank) (find-symbol "SLDB-LOOP" 'swank))))
+    (if *use-old-backtrace*
+	(sys::backtrace) 
+	(let* ((lisp-stack-trace (#"backtrace" (threads::current-thread) 0))
+	      (invoke-pos (position-if (lambda(e) (eq (car (sys::frame-to-list e)) 'invoke-debugger)) lisp-stack-trace)))
+	  (setq lisp-stack-trace (subseq lisp-stack-trace invoke-pos))
+	  (let* ((lisp-start (position 'sys::lisp-stack-frame lisp-stack-trace :key 'type-of :start 1))
+		 (sldb-pos (and sldb-loop
+				(position-if (lambda(e) (eq (car (sys::frame-to-list e)) sldb-loop)) lisp-stack-trace)))
+		 (swank-start
+		   (and 
+		    *hide-swank-frames*
+		    (position-if 
+		     (lambda(e)
+		       (let ((el (car (sys::frame-to-list e))))
+			 (let ((package
+				 (cond ((symbolp el) 
+					(package-name (symbol-package el)))
+				       ((functionp el)
+					(symbol-package (getf (function-plist el) :internal-to-function))))))
+			   (and package (#"matches" package "SWANK.*")))))
+		     lisp-stack-trace))))
+	    (setq lisp-stack-trace (subseq lisp-stack-trace lisp-start 
+					   (if swank-start
+					       swank-start
+					       (if sldb-pos
+						   (1+ sldb-pos))))))
+	  (if (typep condition 'java::java-exception)
+	      (progn
+		(let* ((exception-stack-trace (coerce (#"getStackTrace" (java::java-exception-cause condition)) 'list))
+		       (debugger-stack-trace 
+			 (coerce (subseq exception-stack-trace
+					 (position (#"getName" (#"getClass" #'invoke-debugger))
+						   (#"getStackTrace" (#"currentThread" 'Thread))
+						   :key #"getClassName"
+						   :test 'string-equal))
+				 'list)))
+		  (loop for top in exception-stack-trace
+			until (find top debugger-stack-trace :test (lambda(a b ) (eql (#"hashCode" a) (#"hashCode" b))))
+			collect (jss::new 'JavaStackFrame top) into keep
+			finally (return (append keep (list (jss::new 'JavaStackFrame top)) lisp-stack-trace)))))
+	      lisp-stack-trace))))) 
 
 (defun get-pid ()
   "Get the process identifier of this lisp process. Used to be in
