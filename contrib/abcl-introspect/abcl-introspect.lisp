@@ -174,10 +174,12 @@ object. This gets called once."
 		 (fast-function  (mop::std-method-fast-function method)))
 	     (when (and method-function (compiled-function-p method-function)) 
 	       (setf (getf (function-plist method-function) :method-function) method)
-	       (annotate-internal-functions (list method-function) method))
+	       (annotate-internal-functions (list method-function) method)
+	       (index-function-class-names (list method-function)))
 	     (when (and fast-function (compiled-function-p fast-function))
 	       (setf (getf (function-plist fast-function) :method-fast-function) method)
-	       (annotate-internal-functions (list fast-function) method)))))
+	       (annotate-internal-functions (list fast-function) method)
+	       (index-function-class-names (list method-function))))))
       (if (eq which :all)
 	  (loop for q = (list (find-class t)) then q
 		for focus = (pop q)
@@ -296,7 +298,7 @@ above have used annotate local functions"
     (let ((name (any-function-name  f)))
        (if (consp name)
            (format stream "~{~a~^ ~}" name)
-           (princ name stream)))))
+           (format stream "function ~a" name)))))
 
 (defun each-non-symbol-compiled-function (f)
   (loop for q = (list (find-class t)) then q
@@ -324,7 +326,7 @@ above have used annotate local functions"
     (annotate-internal-functions)
     (annotate-clos-methods)
     (annotate-clos-slots)
-    (index-function-class-names)
+    (index-function-class-names) ;; still missing some cases e.g. generic functions and method functions
     )
   (index-function-class-names (list function))
   (annotate-internal-functions (list name)))
@@ -333,7 +335,8 @@ above have used annotate local functions"
 ;; annotated when they are defined.
 
 (defmethod mop::add-direct-method :after (class method)
-  (annotate-clos-methods (list method)))
+  (annotate-clos-methods (list method))
+)
 
 (defmethod mop::ensure-class-using-class :after (class name  &key direct-slots
                                              direct-default-initargs 
@@ -342,116 +345,5 @@ above have used annotate local functions"
 
 ;; needs to be the last thing. Some interaction with the fasl loader
 (pushnew 'fset-hook-annotate-internal-function sys::*fset-hooks*)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; I don't understand the algorithm that sys:backtrace uses, which seems
-;; broken, so here's an alternative.
-
-;; The lisp portion of the stack backtrace is computed as it is now. It
-;; will have invoke-debugger at the top then some java stack frames that
-;; abcl pushes (the "i don't understand") and then the rest of the
-;; backtrace. We trim that by popping off the invoke-debugger and java
-;; stack frames, leaving just lisp frames.
-
-;; If there's a java exception. In that case we compare the stacktrace of
-;; the exception to the java stack trace and grab the top part of it
-;; that's unique to the exception. We prepend this to the lisp stack
-;; trace.
-
-;; The result will be that we will *not* see the call to invoke debugger,
-;; or any of the swank handling, just what (I think) is relative.
-
-;; What still needs to be investigated is how this plays in cases where
-;; there are callbacks to lisp from java.
-
-;; A good test to see the difference would be 
-
-;; (#"replaceAll" "" "(?o" "")
-
-;; which should now show the calls within the regex code leading to
-;; the exception.
-
-(defvar *use-old-backtrace* nil "set to t to fall back to the standard backtrace")
-(defvar *hide-swank-frames* t)
-
-(defun save-backtrace-for-swank (condition)
-  (let ((sldb-loop (and (find-package 'swank) (find-symbol "SLDB-LOOP" 'swank))))
-    (if *use-old-backtrace*
-	(sys::backtrace) 
-	(let* ((lisp-stack-trace (#"backtrace" (threads::current-thread) 0))
-	      (invoke-pos (position-if (lambda(e) (eq (car (sys::frame-to-list e)) 'invoke-debugger)) lisp-stack-trace)))
-	  (setq lisp-stack-trace (subseq lisp-stack-trace invoke-pos))
-	  (let* ((lisp-start (position 'sys::lisp-stack-frame lisp-stack-trace :key 'type-of :start 1))
-		 (sldb-pos (and sldb-loop
-				(position-if (lambda(e) (eq (car (sys::frame-to-list e)) sldb-loop)) lisp-stack-trace)))
-		 (swank-start
-		   (and 
-		    *hide-swank-frames*
-		    (position-if 
-		     (lambda(e)
-		       (let ((el (car (sys::frame-to-list e))))
-			 (let ((package
-				 (cond ((symbolp el) 
-					(package-name (symbol-package el)))
-				       ((functionp el)
-					(symbol-package (getf (function-plist el) :internal-to-function))))))
-			   (and package (#"matches" package "SWANK.*")))))
-		     lisp-stack-trace))))
-	    (setq lisp-stack-trace (subseq lisp-stack-trace lisp-start 
-					   (if swank-start
-					       swank-start
-					       (if sldb-pos
-						   (1+ sldb-pos))))))
-	  (if (typep condition 'java::java-exception)
-	      (progn
-		(let* ((exception-stack-trace (coerce (#"getStackTrace" (java::java-exception-cause condition)) 'list))
-		       (debugger-stack-trace 
-			 (coerce (subseq exception-stack-trace
-					 (position (#"getName" (#"getClass" #'invoke-debugger))
-						   (#"getStackTrace" (#"currentThread" 'Thread))
-						   :key #"getClassName"
-						   :test 'string-equal))
-				 'list)))
-		  (loop for top in exception-stack-trace
-			until (find top debugger-stack-trace :test (lambda(a b ) (eql (#"hashCode" a) (#"hashCode" b))))
-			collect (jss::new 'JavaStackFrame top) into keep
-			finally (return (append keep (list (jss::new 'JavaStackFrame top)) lisp-stack-trace)))))
-	      lisp-stack-trace))))) 
-
-(defun get-pid ()
-  "Get the process identifier of this lisp process. Used to be in
-  slime but generally useful, so now back in abcl proper."
-  (handler-case
-      (let* ((runtime
-              (java::jstatic "getRuntime" "java.lang.Runtime"))
-             (command
-              (java::jnew-array-from-array
-               "java.lang.String" #("sh" "-c" "echo $PPID")))
-             (runtime-exec-jmethod
-              ;; Complicated because java.lang.Runtime.exec() is
-              ;; overloaded on a non-primitive type (array of
-              ;; java.lang.String), so we have to use the actual
-              ;; parameter instance to get java.lang.Class
-              (java::jmethod "java.lang.Runtime" "exec"
-                            (java::jcall
-                             (java::jmethod "java.lang.Object" "getClass")
-                             command)))
-             (process
-              (java::jcall runtime-exec-jmethod runtime command))
-             (output
-              (java::jcall (java::jmethod "java.lang.Process" "getInputStream")
-                          process)))
-         (java::jcall (java::jmethod "java.lang.Process" "waitFor")
-                     process)
-	 (loop :with b :do
-	    (setq b
-		  (java::jcall (java::jmethod "java.io.InputStream" "read")
-			      output))
-	    :until (member b '(-1 #x0a))	; Either EOF or LF
-	    :collecting (code-char b) :into result
-	    :finally (return
-		       (parse-integer (coerce result 'string)))))
-    (t () 0)))
 
 (provide :abcl-introspect)
