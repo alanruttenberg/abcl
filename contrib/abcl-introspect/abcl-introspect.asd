@@ -7,5 +7,6 @@
   :description "Introspection on compiled function to aid source location other debugging functions.ñ"
   :depends-on ()
   :components 
-  ((:file "abcl-introspect"))
+  ((:file "abcl-introspect")
+   (:file "stacktrace"))
   )
