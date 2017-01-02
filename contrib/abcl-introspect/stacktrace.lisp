@@ -36,11 +36,12 @@
 (defvar *hide-swank-frames* t "set to nil if you want to see debugger internal frames")
 
 (defvar *unwelcome-java-frames*
-  "if a java frame matches any of these patterns, don't show it"
   '("sun.reflect.NativeMethodAccessorImpl\\.invoke0"
     "sun.reflect.NativeMethodAccessorImpl\\.invoke"
     "sun.reflect.DelegatingMethodAccessorImpl\\.invoke"
-    "sun.reflect.GeneratedMethodAccessor\\d+\\.invoke"))
+    "sun.reflect.GeneratedMethodAccessor\\d+\\.invoke")
+  "if a java frame matches any of these patterns, don't show it"
+  )
 
 (defvar *caught-frames* nil "When backtrace is called, it sets this to
   the java stack frames that are unique to the java exception, which is
