@@ -177,7 +177,7 @@
    next frame after error is signal of the same condition, those two
    frames are also removed"
   (let ((error-position (position 'error stacktrace :key 'stackframe-head)))
-    (if error-position
+    (if (and error-position (> (length stacktrace) (+ error-position 3)))
 	(loop with trash = 0 
 	      for pos = error-position then next
 	      for next = (+ pos 3)
