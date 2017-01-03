@@ -163,10 +163,13 @@
 (defun lisp-stack-exception-catching-frames (stacktrace)
   "The frames corresponding to ABCL's internal handling of an exception"
   (and (eq (stackframe-head (car stacktrace)) 'invoke-debugger)
-       (subseq stacktrace 0 
-	       (1+ (position "org.armedbear.lisp.Lisp.error" stacktrace 
+       (let ((error-position (position "org.armedbear.lisp.Lisp.error" stacktrace 
 			     :key (lambda(e) (stackframe-head e t))
-			     :test 'equal)))))
+			     :test 'equal)))
+	 (if error-position
+	     (subseq stacktrace 0 (1+ error-position))
+	     (list (car stacktrace))
+	     ))))
 
 (defun splice-out-spurious-error-frames (stacktrace)
   "if there are nested exceptions sometimes there are extra (error),
