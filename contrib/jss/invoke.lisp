@@ -1,8 +1,8 @@
 ;; Copyright (C) 2005-2016 Alan Ruttenberg
 ;; Copyright (C) 2011-2 Mark Evenson
 ;;
-;; Since most of this code is derivative of the Jscheme System, it is
-;; licensed under the same terms, namely:
+;; Since JSS 1.0 was largely derivative of the Jscheme System, the
+;; current system is licensed under the same terms, namely:
 
 ;; This software is provided 'as-is', without any express or
 ;; implied warranty.
@@ -125,9 +125,7 @@
 
 (defvar *loaded-osgi-bundles* nil)
 
-(defvar *muffle-warnings* t) 
-
-(defvar *muffle-warnings* t) 
+(defvar *muffle-warnings* t)
 
 (defvar *imports-resolved-classes* (make-hash-table :test 'equalp))
 
@@ -271,7 +269,11 @@ want to avoid the overhead of the dynamic dispatch."
                (with-constant-signature ,(cdr fname-jname-pairs)
                  ,@body)))))))
 
-(defun lookup-class-name (name &key (table *class-name-to-full-case-insensitive*) (muffle-warning nil) (return-ambiguous nil))
+(defun lookup-class-name (name
+                          &key
+                            (table *class-name-to-full-case-insensitive*)
+                            (muffle-warning nil)
+                            (return-ambiguous nil))
   (setq name (string name))
   (let* (;; cant (last-name-pattern (#"compile" '|java.util.regex.Pattern| ".*?([^.]*)$"))
          ;; reason: bootstrap - the class name would have to be looked up...
@@ -295,7 +297,9 @@ want to avoid the overhead of the dynamic dispatch."
 		       (return-from lookup-class-name choices)
 		       (error "Ambiguous class name: ~a can be ~{~a~^, ~}" name choices))))
             (if (zerop bucket-length)
-		(unless muffle-warning (warn "can't find class named ~a" name) nil)
+		(progn
+                  (unless muffle-warning (warn "can't find class named ~a" name)) nil)
+>>>>>>> jss-fields
                 (let ((matches (loop for el in bucket when (matches-end name el 'char=) collect el)))
                   (if (= (length matches) 1)
                       (car matches)
@@ -304,7 +308,8 @@ want to avoid the overhead of the dynamic dispatch."
                             (if (= (length matches) 1)
                                 (car matches)
                                 (if (= (length matches) 0)
-				    (unless muffle-warning (warn "can't find class named ~a" name) nil)
+				    (progn
+                                      (unless muffle-warning (warn "can't find class named ~a" name)) nil)
                                     (ambiguous matches))))
                           (ambiguous matches))))))))))
 

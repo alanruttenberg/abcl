@@ -5,7 +5,7 @@
   :author "Alan Ruttenberg"
   :version "1.0.0"
   :description "Introspection on compiled function to aid source location other debugging functions.ñ"
-  :depends-on ()
+  :depends-on (jss)
   :components 
   ((:file "abcl-introspect")
    (:file "stacktrace"))
