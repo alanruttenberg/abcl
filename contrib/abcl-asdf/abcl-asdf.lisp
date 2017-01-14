@@ -21,6 +21,19 @@
    ;; inherited from ASDF:COMPONENT ??? what are the CL semantics on overriding -- ME 2012-04-01
    #+nil   (version :initform nil)))
 
+(defclass mvn-bundle (mvn)
+  ;; bootdelegation and system-packages correspond to the framework
+  ;; config vars org.osgi.framework.bootdelegation and
+  ;; org.osgi.framework.system.packages.extra implementation is to
+  ;; restart OSGI with the values appended to the existing
+  ;; configuration in *osgi-configuration* I thought I understood the
+  ;; difference but I don't - only system-packages has worked for me.
+  ;; These should be lists of strings .  What these accomplish might
+  ;; better be done with "extension bundles" but I haven't tried them
+  ;; yet.
+  ((bootdelegation :initarg :bootdelegation :initform nil)
+   (system-packages :initarg :system-packages :initform nil)))
+
 #+nil
 (defmethod find-component ((component iri) path)
   component)
@@ -37,6 +50,29 @@
   (let ((resolved-classpath (resolved-classpath c)))
     (when (stringp resolved-classpath)
       (java:add-to-classpath (abcl-asdf:as-classpath resolved-classpath)))))
+
+(defmethod perform ((op compile-op) (c mvn-bundle))
+  (unless (resolved-classpath c)
+    (setf (resolved-classpath c)
+	  (abcl-asdf:resolve   
+	   (ensure-parsed-mvn c))))
+  (let ((resolved-classpath (resolved-classpath c)))
+    (let ((extra-bootdelegation (slot-value c 'bootdelegation))
+	  (extra-system-packages (slot-value c 'system-packages)))
+      (if (or extra-bootdelegation extra-system-packages)
+	  (warn "not handling :bootdelegation and :system-packages args yet"))
+      (when (stringp resolved-classpath)
+	(jss:add-bundle (car (abcl-asdf:as-classpath resolved-classpath)))
+	))))
+
+(defmethod perform ((operation load-op) (c mvn-bundle))
+  (let ((resolved-classpath (resolved-classpath c)))
+    (let ((extra-bootdelegation (slot-value c 'bootdelegation))
+	  (extra-system-packages (slot-value c 'system-packages)))
+      (if (or extra-bootdelegation extra-system-packages)
+	  (warn "not handling :bootdelegation and :system-packages args yet"))
+      (when (stringp resolved-classpath)
+	(jss:add-bundle (car (abcl-asdf:as-classpath resolved-classpath)))))))
 
 ;;; A Maven URI has the form "mvn:group-id/artifact-id/version"
 ;;;
