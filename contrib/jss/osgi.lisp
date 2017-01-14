@@ -81,13 +81,54 @@
 
 (defvar *osgi-cache-location* (namestring (merge-pathnames 
 					   (make-pathname :directory '(:relative "abcl-felix-cache"))
-					   (user-homedir-pathname))))
+					   (user-homedir-pathname)))
+  "Where bundle jars are copied to and unpacked if necessary. Default is to have it distinct from the default, since who knows what's been put there")
 
 ;;http://felix.apache.org/documentation/subprojects/apache-felix-framework/apache-felix-framework-configuration-properties.html
 
-(defvar *osgi-configuration* `(("org.osgi.framework.storage" ,*osgi-cache-location*)))
+(defvar *osgi-configuration* `(;; Where the cache should live
+			       ("org.osgi.framework.storage" ,*osgi-cache-location*)
+			       ;; So that imported system classes are loaded using ABCL's classloader
+			       ("org.osgi.framework.bundle.parent" "framework")
+			       ;; sounds good even though I'm not understanding bootdelegation yet
+			       ("felix.bootdelegation.implicit" "true")
+			       ;; just in case
+			       ("org.osgi.framework.library.extensions" "jnilib,dylib")
+;			       ("org.osgi.framework.bootdelegation" "org.semanticweb.owlapi.model,org.semanticweb.owlapi.reasoner,org.semanticweb.owlapi.reasoner.impl,org.semanticweb.owlapi.reasoner.knowledgeexploration,org.semanticweb.owlapi.util,org.semanticweb.owlapi.vocab,com.google.common.collect,gnu.trove,org.semanticweb.owlapi.model.*,org.semanticweb.owlapi.reasoner.*,org.semanticweb.owlapi.reasoner.impl.*,org.semanticweb.owlapi.reasoner.knowledgeexploration.*,org.semanticweb.owlapi.util.*,org.semanticweb.owlapi.vocab.*,com.google.common.collect.*,gnu.trove.*,javax.swing,javax.swing.*,javax.xml.datatype,javax.xml.datatype.*,org.apache.log4j,org.apache.log4j.*")
+;			       ("org.osgi.framework.system.packages.extra" "org.semanticweb.owlapi.model,org.semanticweb.owlapi.reasoner,org.semanticweb.owlapi.reasoner.impl,org.semanticweb.owlapi.reasoner.knowledgeexploration,org.semanticweb.owlapi.util,org.semanticweb.owlapi.vocab,com.google.common.collect,gnu.trove,org.semanticweb.owlapi.model.*,org.semanticweb.owlapi.reasoner.*,org.semanticweb.owlapi.reasoner.impl.*,org.semanticweb.owlapi.reasoner.knowledgeexploration.*,org.semanticweb.owlapi.util.*,org.semanticweb.owlapi.vocab.*,com.google.common.collect.*,gnu.trove.*,javax.swing,javax.swing.*,javax.xml.datatype,javax.xml.datatype.*,org.apache.log4j,org.apache.log4j.*")
+			       ))
 
-(defvar *osgi-clean-cache-on-start* nil)
+(defvar *osgi-clean-cache-on-start* t "Clear the cache on startup. First add-bundle has this set as t and then flips to nil (so you don't lose the rest of your packages)")
+
+(defvar *osgi-native-libraries* nil "Alist of bundles -> native libraries they're to load. Informative - not prescriptive")
+
+
+;; Why is the native library not being loaded with system.load()?
+
+;; Because system.load looks up the stack for a caller and that
+;; caller's classloader is used to findLibrary, and the classloader
+;; is the wrong one.
+;; Proof: The call to loadlibary on the *right* classloader works.
+;; The class in question is FactPlusPlus which calls System.load() in its init.
+;; FaCTPlusPlusReasonerFactory is loaded by the same (osgi) classloader so we get *that* classloader
+;; and then call the loadLibrary method on it. It takes another class (which classloader is used for findLibrary
+;; (jstatic (find "loadLibrary"  (#"getDeclaredMethods"  (find-java-class 'lang.classloader)) :key #"getName" :test 'equal)  c (find-java-class 'FaCTPlusPlusReasonerFactory) "FaCTPlusPlusJNI" +false+)
+
+;; However in the context, when system.load is called, it doesn't have
+;; a class to look the classloader up with, so it looks down the stack
+;; and grabs a class and uses its classloaer. Apparently that's *not*
+;; the osgi classloader, presumably because it's called from the
+;; framework, and the framework's classloader is not the same as the
+;; classloader that the framework uses to load bundle classes.
+
+;; here's a guess. If calling with felix.main, the framework gets an
+;; osgi classloader and subsequently all is happy.
+;;
+;; Could be fixed in code by not calling system.load but rather
+;; speaking to the classloader directly as above.
+;; A theory: If a class in another bundle loaded factpp then it would work.
+;; THIS DOESN'T HAPPEN IF felix.main is used rather than felix.framework!!!
+
 
 ;; http://stackoverflow.com/questions/17902795/convert-jarentry-to-file
 
@@ -117,9 +158,12 @@
     (let ((map (new 'java.util.properties)))
       (loop for (prop val) in (reverse configuration) do (#"setProperty" map prop val))
       (when empty-cache
-	  (#"setProperty" map "org.osgi.framework.storage.clean" "onFirstInit"))
-      (when (not (ignore-errors (find-java-class 'org.osgi.framework.launch.FrameworkFactory)))
-	(add-felix-to-classpath))
+	(#"setProperty" map "org.osgi.framework.storage.clean" "onFirstInit"))
+      (flet ((resolve (artifact)
+	       (funcall (intern "RESOLVE" 'abcl-asdf) artifact)))
+	(add-to-classpath ;; sometimes resolve returns ":" separated pathnames of both main and framework jars. Only need the first.
+	 ;; 5.6.1 current as of Jan/17
+	 (car (split-at-char (resolve "org.apache.felix/org.apache.felix.main/5.6.1") ":"))))
       (let* ((framework-factory-class (find-java-class 'org.osgi.framework.launch.FrameworkFactory))
 	     (ffs (#"load" 'ServiceLoader framework-factory-class (#"getClassLoader" framework-factory-class)))
 	     (factory (#"next" (#"iterator" ffs)))
@@ -127,9 +171,28 @@
 	(#"start" framework)
 	(setq *osgi-framework* framework)))))
 
+(defun force-unpack-native-libraries (bundle jar)
+  "Not used unless OSGI misbehaves again"
+  (let ((wiring (#"adapt" bundle (find-java-class 'BundleWiring))))
+    (loop for native in (jss::j2list (#"getNativeLibraries" wiring))
+	  for entry = (#"getEntryName" native)
+	  for library-path = (#"getEntryAsNativeLibrary" (#"getContent" (#"getRevision" wiring)) entry)
+	  do (pushnew (list jar library-path) *osgi-native-libraries* :test 'equalp)
+	     ;;(#"load" 'system library-path)
+	  )))
+
 (defun stop-osgi ()
   (#"stop" *osgi-framework*)
-  (setq *osgi-framework* nil))
+  (setq *osgi-framework* nil)
+  ;; should *loaded-osgi-bundles* be set to nil here?
+  )
+
+(defun reset-osgi ()
+  "Restart OSGI after emptying the cache, and reload bundles that were loaded"
+  (stop-osgi)
+  (ensure-osgi-initialized :empty-cache t)
+  (loop for (name nil nil jar) in (copy-list *loaded-osgi-bundles*)
+	do (add-bundle jar :name name)))
 
 (defun get-osgi-framework-property (property)
   (ensure-osgi-initialized)
@@ -148,6 +211,7 @@
 
 (defun add-bundle (jar &key name)
   (ensure-osgi-initialized)
+  (setq *osgi-clean-cache-on-start* nil)
   (setq jar (namestring (translate-logical-pathname jar)))
   (let* ((bundle-context (#"getBundleContext" *osgi-framework*))
 	 (bundle (find jar (#"getBundles" bundle-context) :key #"getLocation" :test 'search)))
@@ -157,13 +221,16 @@
       (when bundle
 	(warn "reinstalling bundle ~a" jar)
 	(#"uninstall" bundle))
-      (setq bundle (#"installBundle" bundle-context (concatenate 'string "file:" jar))))
+      (unless (member :scheme (pathname-host jar))
+	(setq jar (concatenate 'string "file:" jar)))
+      (setq bundle (#"installBundle" bundle-context jar)))
 
     (#"start" bundle)
     (let ((name (or name (#"getSymbolicName" bundle))))
       (let* ((index (index-class-names (bundle-exports bundle))))
 	(setq *loaded-osgi-bundles* (remove name *loaded-osgi-bundles* :test 'equalp :key 'car))
-	(push (list name bundle index) *loaded-osgi-bundles*)
+	(push (list name bundle index jar) *loaded-osgi-bundles*)
+;	(force-unpack-native-libraries bundle jar)
 	bundle))))
 
 (defun bundle-headers (bundle)
@@ -221,24 +288,35 @@
 (defun bundle-exports (bundle)
   (let ((entry (bundle-header bundle "Export-Package"))
 	(bundleWiring (#"adapt" bundle (find-java-class 'BundleWiring))))
-    (loop for package-prefix
-	    in 
-	    (loop with candidates = (sort (mapcar (lambda(el) (#"replaceAll" el ";.*$" "")) (split-at-char (#"replaceAll" entry "(\\\".*?\\\")" "") #\,))			 
-					  'string-lessp)
-		  for first = (pop candidates)
-		  until (null candidates)
-		  do (loop for next = (car candidates)
-			   while (and next (eql 0 (search first next))) do (pop candidates))
-		  collect first)
-	    for path = (substitute #\/ #\. package-prefix) 
-	  append
-	  (loop for entry in (set-to-list (#"listResources" bundlewiring (concatenate 'string "/" path)
-					       "*.class" (jfield (find-java-class 'BundleWiring) "FINDENTRIES_RECURSE")))
-		for url = (#"toString" (#"getEntry" bundle entry))
+    ;; if there's an "Export-package" then respect it
+    (if entry
+	(loop for package-prefix
+		in 
+		(loop with candidates = (sort (mapcar (lambda(el) (#"replaceAll" el ";.*$" "")) 
+						      (split-at-char (#"replaceAll" entry "(\\\".*?\\\")" "") #\,))			 
+					      'string-lessp)
+		      for first = (pop candidates)
+		      until (null candidates)
+		      do (loop for next = (car candidates)
+			       while (and next (eql 0 (search first next))) do (pop candidates))
+		      collect first)
+	      for path = (substitute #\/ #\. package-prefix) 
+	      append
+	      (loop for entry in (set-to-list (#"listResources" bundlewiring (concatenate 'string "/" path)
+								"*.*" (jfield (find-java-class 'BundleWiring) "FINDENTRIES_RECURSE")))
+		    for url = (#"toString" (#"getEntry" bundle entry))
+		    collect
+		    (substitute #\. #\/ (subseq 
+					 (#"toString" (#"getEntry" bundle entry))
+					 (search path url :test 'char=)))))
+	;; otherwise it's all good
+	(loop for entry in (set-to-list (#"listResources"
+					 bundlewiring "/"
+					 "*.*" (jfield (find-java-class 'BundleWiring) "FINDENTRIES_RECURSE")))
+	      for url = (#"toString" (#"getEntry" bundle entry))
+	      when (#"matches" url ".*\\.class$")
 		collect
-		(substitute #\. #\/ (subseq 
-		 (#"toString" (#"getEntry" bundle entry))
-		 (search path url :test 'char=)))))))
+		(substitute #\. #\/ (subseq (subseq url 9) (1+ (search "/" (subseq url 9)))))))))
 
 (defun dwim-find-bundle-entry (name)
   (let ((string (string name)))
