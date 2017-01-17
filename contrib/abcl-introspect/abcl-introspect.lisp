@@ -227,33 +227,43 @@ object. This gets called once."
   "Compute function name based on the actual function name, if it is a
 named function or the values on the function-plist that functions
 above have used annotate local functions"
-  (maybe-jss-function function)
-  (let ((interpreted (not (compiled-function-p function))))
-    (let ((plist (sys::function-plist function)))
-      (cond ((setq it (getf plist :internal-to-function))
-	     `(:local-function ,@(if (java::jcall "getLambdaName" function) 
-				     (list (java::jcall "getLambdaName" function))
-				     (if (getf plist :jss-function)
-					 (list (concatenate 'string "#\"" (getf plist :jss-function) "\"")))
-				     )
-			       ,@(if interpreted '((interpreted)))
-			       :in ,@(if (typep it 'mop::standard-method)
-					 (cons :method (method-spec-list it))
-					 (list it))))
-	    ((setq it (getf plist :method-function))
-	     `(:method-function ,@(if interpreted '((interpreted))) ,@(sys::method-spec-list it)))	   
-	    ((setq it (getf plist :method-fast-function))
-	     `(:method-fast-function ,@(if interpreted '("(interpreted)")) ,@(sys::method-spec-list it)))
-	    ((setq it (getf plist :initfunction))
-	     (let ((class (and (slot-boundp it 'allocation-class) (slot-value it 'allocation-class))))
-	       `(:slot-initfunction ,(slot-value it 'name ) ,@(if interpreted '((interpreted))) :for ,(if class (class-name class) '??))))
-	    (t (or (and (nth-value 2 (function-lambda-expression function))
-			(if interpreted
-			    `(,(nth-value 2 (function-lambda-expression function)) ,'(interpreted))
-			(nth-value 2 (function-lambda-expression function))))    
-		   (and (not (compiled-function-p function))
-			`(:anonymous-interpreted-function))
-		   (function-name-by-where-loaded-from function)))))))
+  (cond ((typep function 'generic-function)
+	 (mop::generic-function-name function))
+	((typep function 'mop::method)
+	 (mop::generic-function-name (mop::method-generic-function function)))
+	(t
+	 (maybe-jss-function function)
+	 (let ((interpreted (not (compiled-function-p function))))
+	   (let ((plist (sys::function-plist function)))
+	     (cond ((setq it (getf plist :internal-to-function))
+		    `(:local-function ,@(if (java::jcall "getLambdaName" function) 
+					    (list (java::jcall "getLambdaName" function))
+					    (if (getf plist :jss-function)
+						(list (concatenate 'string "#\"" (getf plist :jss-function) "\"")))
+					    )
+				      ,@(if interpreted '((interpreted)))
+				      :in ,@(if (typep it 'mop::standard-method)
+						(cons :method (method-spec-list it))
+						(list it))))
+		   ((setq it (getf plist :method-function))
+		    `(:method-function ,@(if interpreted '((interpreted))) ,@(sys::method-spec-list it)))	   
+		   ((setq it (getf plist :method-fast-function))
+		    `(:method-fast-function ,@(if interpreted '("(interpreted)")) ,@(sys::method-spec-list it)))
+		   ((setq it (getf plist :initfunction))
+		    (let ((class (and (slot-boundp it 'allocation-class) (slot-value it 'allocation-class))))
+		      `(:slot-initfunction ,(slot-value it 'name ) ,@(if interpreted '((interpreted))) :for ,(if class (class-name class) '??))))
+		   ((#"equals" function (symbol-function 'lambda))
+		    '(:macro-function lambda))
+		   (t (or (and (nth-value 2 (function-lambda-expression function))
+			       (if interpreted
+				   `(,(nth-value 2 (function-lambda-expression function)) ,'(interpreted))
+				   (let ((name (nth-value 2 (function-lambda-expression function))))
+				     (if (macro-function-p function)
+					 `(:macro ,name)
+					 name))))
+			  (and (not (compiled-function-p function))
+			       `(:anonymous-interpreted-function))
+			  (function-name-by-where-loaded-from function)))))))))
 
 (defun function-name-by-where-loaded-from (function)
   "name of last resource - used the loaded-from field from the function to construct the name"
@@ -269,6 +279,7 @@ above have used annotate local functions"
   function. If so add to function internal plist :jss-function and the
   name of the java methods"
   (and (find-package :jss)
+       (eq (type-of f) 'compiled-function)
        (or (getf (sys::function-plist f) :jss-function)
 	   (let ((internals (function-internal-fields f)))
 	     (and (= (length internals) 2)
@@ -294,11 +305,14 @@ above have used annotate local functions"
   "Print a function using any-function-name. Requires a patch to
   system::output-ugly-object in order to prevent the function being
   printed by a java primitive"
-  (print-unreadable-object (f stream :identity t)
-    (let ((name (any-function-name  f)))
-       (if (consp name)
-           (format stream "~{~a~^ ~}" name)
-           (format stream "function ~a" name)))))
+  (if (or (typep f 'mop::generic-function)
+	  (typep f 'mop::method))
+      (call-next-method)
+      (print-unreadable-object (f stream :identity t)
+	(let ((name (any-function-name  f)))
+	  (if (consp name)
+	      (format stream "~{~a~^ ~}" name)
+	      (format stream "function ~a" name))))))
 
 (defun each-non-symbol-compiled-function (f)
   (loop for q = (list (find-class t)) then q
@@ -346,6 +360,4 @@ above have used annotate local functions"
 ;; needs to be the last thing. Some interaction with the fasl loader
 (pushnew 'fset-hook-annotate-internal-function sys::*fset-hooks*)
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-		 
 (provide :abcl-introspect)
