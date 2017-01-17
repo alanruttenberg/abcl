@@ -299,7 +299,6 @@ want to avoid the overhead of the dynamic dispatch."
             (if (zerop bucket-length)
 		(progn
                   (unless muffle-warning (warn "can't find class named ~a" name)) nil)
->>>>>>> jss-fields
                 (let ((matches (loop for el in bucket when (matches-end name el 'char=) collect el)))
                   (if (= (length matches) 1)
                       (car matches)
