@@ -9,7 +9,6 @@
                                      (:file "invoke")
                                      (:file "collections")
 				     (:file "optimize-java-call")
-				     (:file "collections")
 				     (:file "osgi")
                                      (:file "classpath")
 				     (:file "transform-to-field")
