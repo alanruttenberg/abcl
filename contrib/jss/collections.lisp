@@ -126,4 +126,5 @@ If INVERT? is non-nil than reverse the keys and values in the resulting hashtabl
 	    ((jcall isinstance (load-time-value (jclass "java.util.Collections")) thing) (iterator-collect (#"iterator" thing)))
 	    ((jcall isinstance (load-time-value (jclass "java.util.Spliterator")) thing) (iterator-collect (#"iterator" (#"stream" 'StreamSupport thing))))
 	    ((jcall isinstance (load-time-value (jclass "java.util.Dictionary")) thing) (iterator-collect (#"elements" thing)))
+	    ((ignore-errors (#"toArray" thing)) (coerce (#"toArray" thing) 'list))
 	    (t (error "yet another iteration type - fix it: ~a" (jclass-name (jobject-class thing))))))))

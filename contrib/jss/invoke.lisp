@@ -1,8 +1,8 @@
 ;; Copyright (C) 2005-2016 Alan Ruttenberg
 ;; Copyright (C) 2011-2 Mark Evenson
 ;;
-;; Since most of this code is derivative of the Jscheme System, it is
-;; licensed under the same terms, namely:
+;; Since JSS 1.0 was largely derivative of the Jscheme System, the
+;; current system is licensed under the same terms, namely:
 
 ;; This software is provided 'as-is', without any express or
 ;; implied warranty.
@@ -125,9 +125,7 @@
 
 (defvar *loaded-osgi-bundles* nil)
 
-(defvar *muffle-warnings* t) 
-
-(defvar *muffle-warnings* t) 
+(defvar *muffle-warnings* t)
 
 (defvar *imports-resolved-classes* (make-hash-table :test 'equalp))
 
@@ -233,10 +231,12 @@
   (defun read-invoke (stream char arg) 
     (unread-char char stream)
     (let ((name (read stream)))
-      (let ((object-var (gensym))
-            (args-var (gensym)))
-        `(lambda (,object-var &rest ,args-var) 
-           (invoke-restargs ,name  ,object-var ,args-var ,(eql arg 0))))))
+      (if (or (find #\. name) (find #\{ name))
+	  (jss-transform-to-field name)
+	  (let ((object-var (gensym))
+		(args-var (gensym)))
+	    `(lambda (,object-var &rest ,args-var) 
+	       (invoke-restargs ,name  ,object-var ,args-var ,(eql arg 0)))))))
   (set-dispatch-macro-character #\# #\" 'read-invoke))
 
 (defmacro with-constant-signature (fname-jname-pairs &body body)
@@ -269,7 +269,11 @@ want to avoid the overhead of the dynamic dispatch."
                (with-constant-signature ,(cdr fname-jname-pairs)
                  ,@body)))))))
 
-(defun lookup-class-name (name &key (table *class-name-to-full-case-insensitive*) (muffle-warning nil))
+(defun lookup-class-name (name
+                          &key
+                            (table *class-name-to-full-case-insensitive*)
+                            (muffle-warning nil)
+                            (return-ambiguous nil))
   (setq name (string name))
   (let* (;; cant (last-name-pattern (#"compile" '|java.util.regex.Pattern| ".*?([^.]*)$"))
          ;; reason: bootstrap - the class name would have to be looked up...
@@ -289,9 +293,12 @@ want to avoid the overhead of the dynamic dispatch."
                          (length end))
                       (length full)))
                  (ambiguous (choices)
-                   (error "Ambiguous class name: ~a can be ~{~a~^, ~}" name choices)))
+		   (if return-ambiguous 
+		       (return-from lookup-class-name choices)
+		       (error "Ambiguous class name: ~a can be ~{~a~^, ~}" name choices))))
             (if (zerop bucket-length)
-		(unless muffle-warning (warn "can't find class named ~a" name) nil)
+		(progn
+                  (unless muffle-warning (warn "can't find class named ~a" name)) nil)
                 (let ((matches (loop for el in bucket when (matches-end name el 'char=) collect el)))
                   (if (= (length matches) 1)
                       (car matches)
@@ -300,7 +307,8 @@ want to avoid the overhead of the dynamic dispatch."
                             (if (= (length matches) 1)
                                 (car matches)
                                 (if (= (length matches) 0)
-				    (unless muffle-warning (warn "can't find class named ~a" name) nil)
+				    (progn
+                                      (unless muffle-warning (warn "can't find class named ~a" name)) nil)
                                     (ambiguous matches))))
                           (ambiguous matches))))))))))
 
@@ -515,7 +523,7 @@ current classpath."
         (format stream "~a~%" method))
       (jclass-method-names class)))
 
-(setf (symbol-function 'jcmn) 'java-class-method-names)
+(setf (symbol-function 'jcmn) #'java-class-method-names)
 
 (defun path-to-class (classname)
   (let ((full (lookup-class-name classname)))
