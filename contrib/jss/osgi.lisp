@@ -94,14 +94,13 @@
 			       ("felix.bootdelegation.implicit" "true")
 			       ;; just in case
 			       ("org.osgi.framework.library.extensions" "jnilib,dylib")
-;			       ("org.osgi.framework.bootdelegation" "org.semanticweb.owlapi.model,org.semanticweb.owlapi.reasoner,org.semanticweb.owlapi.reasoner.impl,org.semanticweb.owlapi.reasoner.knowledgeexploration,org.semanticweb.owlapi.util,org.semanticweb.owlapi.vocab,com.google.common.collect,gnu.trove,org.semanticweb.owlapi.model.*,org.semanticweb.owlapi.reasoner.*,org.semanticweb.owlapi.reasoner.impl.*,org.semanticweb.owlapi.reasoner.knowledgeexploration.*,org.semanticweb.owlapi.util.*,org.semanticweb.owlapi.vocab.*,com.google.common.collect.*,gnu.trove.*,javax.swing,javax.swing.*,javax.xml.datatype,javax.xml.datatype.*,org.apache.log4j,org.apache.log4j.*")
-;			       ("org.osgi.framework.system.packages.extra" "org.semanticweb.owlapi.model,org.semanticweb.owlapi.reasoner,org.semanticweb.owlapi.reasoner.impl,org.semanticweb.owlapi.reasoner.knowledgeexploration,org.semanticweb.owlapi.util,org.semanticweb.owlapi.vocab,com.google.common.collect,gnu.trove,org.semanticweb.owlapi.model.*,org.semanticweb.owlapi.reasoner.*,org.semanticweb.owlapi.reasoner.impl.*,org.semanticweb.owlapi.reasoner.knowledgeexploration.*,org.semanticweb.owlapi.util.*,org.semanticweb.owlapi.vocab.*,com.google.common.collect.*,gnu.trove.*,javax.swing,javax.swing.*,javax.xml.datatype,javax.xml.datatype.*,org.apache.log4j,org.apache.log4j.*")
 			       ))
 
 (defvar *osgi-clean-cache-on-start* t "Clear the cache on startup. First add-bundle has this set as t and then flips to nil (so you don't lose the rest of your packages)")
 
 (defvar *osgi-native-libraries* nil "Alist of bundles -> native libraries they're to load. Informative - not prescriptive")
 
+(defvar cl-user::*before-osgi-starting-hooks* nil "A list of functions to call before before OSGI starts, for example to modify *osgi-configuration*")
 
 ;; Why is the native library not being loaded with system.load()?
 
@@ -129,32 +128,11 @@
 ;; A theory: If a class in another bundle loaded factpp then it would work.
 ;; THIS DOESN'T HAPPEN IF felix.main is used rather than felix.framework!!!
 
-
-;; http://stackoverflow.com/questions/17902795/convert-jarentry-to-file
-
-;; if we're loading from a jar, unzip felix.jar to a temp file and add
-;; to classpath, otherwise add the jar
-(defun add-felix-to-classpath ()
-  (let* ((source (second (car (get 'jss::invoke 'sys::source))))
-	 (loading-from-jar? (consp (pathname-device source))))
-    (if loading-from-jar?
-	(let* ((file (#"createTempFile" 'File "felix" ".jar"))
-	       (out (new 'FileOutputStream file))
-	       (buffer (jnew-array "byte" 81920))
-	       (jar (new 'jarfile (namestring (car (pathname-device source)))))
-	       (stream (#"getInputStream" jar (#"getEntry" jar "contrib/jss/felix.jar"))))
-	  (loop for count = (#"read" stream buffer)
-		while (> count 0)
-		do (#"write" out buffer 0 count))
-	  (#"close" stream)
-	  (#"close" out)
-	  (add-to-classpath (#"toString" file)))
-	(add-to-classpath (namestring (merge-pathnames "felix.jar"  source))))))
-
 ;; configuration properties are set last to first, so you can prepend overrides to *osgi-configuration*
 (defun ensure-osgi-initialized (&key (configuration *osgi-configuration*) 
 				  (empty-cache *osgi-clean-cache-on-start*))
   (unless *osgi-framework*
+    (loop for function in *before-osgi-starting-hooks* do (funcall function))
     (let ((map (new 'java.util.properties)))
       (loop for (prop val) in (reverse configuration) do (#"setProperty" map prop val))
       (when empty-cache
@@ -197,6 +175,17 @@
 (defun get-osgi-framework-property (property)
   (ensure-osgi-initialized)
   (#"getProperty" (#"getBundleContext" *osgi-framework*) property))
+
+(defun add-to-comma-separated-osgi-config (config-parameter elements)
+  (let* ((entry (find config-parameter *osgi-configuration* :test 'equal :key 'car))
+	 (value (if entry (second entry) ""))
+	 (new-value (format nil "~{~a~^,~}" 
+			    (sort (union elements (if (equal value "") nil (jss::split-at-char value #\,))
+					 :test 'equalp)
+				  'string-lessp))))
+    (if entry
+	(setf (second entry) new-value)
+	(push (list config-parameter new-value) *osgi-configuration*))))
 
 (defun osgi-cache-path ()
   (ensure-osgi-initialized)
