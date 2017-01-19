@@ -356,7 +356,7 @@ calls on the java.util.Enumeration `jenumeration`."
 
 (defmethod make-load-form ((object java-object) &optional environment)
   (declare (ignore environment))
-  (let ((class-name (jclass-of object)))
+  (let ((class-name (jclass-name (jclass-of object))))
     (cond
      ((string= class-name "java.lang.reflect.Constructor")
       `(java:jconstructor ,(jclass-name
