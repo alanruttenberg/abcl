@@ -100,7 +100,7 @@
 
 (defvar *osgi-native-libraries* nil "Alist of bundles -> native libraries they're to load. Informative - not prescriptive")
 
-(defvar cl-user::*before-osgi-starting-hooks* nil "A list of functions to call before before OSGI starts, for example to modify *osgi-configuration*")
+(defvar *before-osgi-starting-hooks* nil "A list of functions to call before before OSGI starts, for example to modify *osgi-configuration*")
 
 ;; Why is the native library not being loaded with system.load()?
 
@@ -129,11 +129,15 @@
 ;; THIS DOESN'T HAPPEN IF felix.main is used rather than felix.framework!!!
 
 ;; configuration properties are set last to first, so you can prepend overrides to *osgi-configuration*
-(defun ensure-osgi-initialized (&key (configuration *osgi-configuration*) 
-				  (empty-cache *osgi-clean-cache-on-start*))
+
+(eval-when (:load-toplevel :execute)
+  (loop for function in *before-osgi-starting-hooks* do (funcall function)))
+
+(defun ensure-osgi-initialized (&key (empty-cache *osgi-clean-cache-on-start*))
   (unless *osgi-framework*
     (loop for function in *before-osgi-starting-hooks* do (funcall function))
-    (let ((map (new 'java.util.properties)))
+    (let ((map (new 'java.util.properties))
+	  (configuration *osgi-configuration*))
       (loop for (prop val) in (reverse configuration) do (#"setProperty" map prop val))
       (when empty-cache
 	(#"setProperty" map "org.osgi.framework.storage.clean" "onFirstInit"))
