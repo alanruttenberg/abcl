@@ -11,7 +11,6 @@
 (is (read-from-string "#\"q.bar.{foo}\"") '(get-java-field (load-time-value (find-java-class "q.bar")) foo t))
 (is (read-from-string "#\"{bar}.foo\"") '(get-java-field bar "foo" t))
 (is-error (read-from-string "#\".bar.foo\"") 'simple-error)
-
 ;;; http://abcl.org/trac/ticket/205
 (is (with-constant-signature ((substring "substring")) (substring "01234" 2)) "234")
 ;;; http://abcl.org/trac/ticket/229 - note: version of test for this ticket was broken in tests.lisp
