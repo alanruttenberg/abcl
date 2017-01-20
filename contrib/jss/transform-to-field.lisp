@@ -41,10 +41,10 @@
   (if (and (not (char= (char thing 0) #\{)) (not (char= (char field 0) #\{)))
       (static-field-ref-transform thing field sharp-arg)
       `(get-java-field ,(if (char= (char thing 0) #\{)
-			    (intern (string-upcase (subseq thing 1 (- (length thing) 1))))
+			    (read-from-string (subseq thing 1 (- (length thing) 1)))
 			    `(load-time-value (find-java-class ,thing)))
 		       ,(if (char= (char field 0) #\{)
-			    (intern (string-upcase (subseq field 1 (- (length field) 1))))
+			    (read-from-string (subseq field 1 (- (length field) 1)))
 			    field)
 		       t)))
 
@@ -56,6 +56,3 @@
 	       (#"setAccessible" jfield t)
 	       jfield))
     (load-time-value (find-java-class ',class))))
-
-
-
