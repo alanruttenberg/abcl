@@ -4,11 +4,17 @@
   :version "3.2.2" 
   :description "<> asdf:defsystem <urn:abcl.org/release/1.5.0/contrib/jss#3.2.2>"
   :components 
-  ((:mvn "net.bytebuddy/byte-buddy/1.6.4")
-   (:mvn "net.bytebuddy/byte-buddy-agent/1.6.5")
-   (:file "byte-buddy"))
-;;  :defsystem-depends-on (:prove-asdf)
-;;  :in-order-to ((test-op (test-op jss/tests)))
+  ((:module suntools :pathname "lib"
+	    :components 
+	    ((:jdk-jar "tools.jar")))
+   (:module main :pathname ""
+    :components
+    ((:mvn "net.bytebuddy/byte-buddy/1.6.4")
+     (:mvn "net.bytebuddy/byte-buddy-agent/1.6.5")
+     (:file "byte-buddy"))
+    :depends-on (suntools)))
+  ;;  :defsystem-depends-on (:prove-asdf)
+  ;;  :in-order-to ((test-op (test-op jss/tests)))
   )
 
 ;; Until prove-asdf works
