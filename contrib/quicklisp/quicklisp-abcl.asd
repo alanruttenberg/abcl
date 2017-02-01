@@ -39,7 +39,7 @@
                 (warn "Using insecure transport for remote installation of Quicklisp:~&~A~&." e)
                 (load "http://beta.quicklisp.org/quicklisp.lisp")))))
       (unless (find-package :quicklisp)
-        (funcall (intern "INSTALL" "QUICKLISP-QUICKSTART")))))
+        (funcall (intern "INSTALL" "QUICKLISP-QUICKSTART") :path *quicklisp-parent-dir*))))
 
 
 
