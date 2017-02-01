@@ -8,9 +8,11 @@
     :version "0.4.0"
     :components nil)
 
+(defvar *quicklisp-parent-dir* (user-homedir-pathname))
+  
 (defmethod perform ((o load-op) (c (eql (find-system 'quicklisp-abcl))))
   (let* ((setup-base (merge-pathnames "quicklisp/setup" 
-                                      (user-homedir-pathname)))
+                                      *quicklisp-parent-dir*))
          (setup-source (probe-file (make-pathname :defaults setup-base
                                                   :type "lisp")))
          (setup-fasl (probe-file (make-pathname :defaults setup-base
