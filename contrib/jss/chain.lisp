@@ -117,6 +117,7 @@
 	(assert (eq (car el) :comma) (e))
 	(parse (cdr el)))))
 
+#|
 (jss::parse-jss-chain ".subclass(Object.class)
    .method(ElementMatchers.named(\"toString\"))
    .intercept(FixedValue.value(string))
@@ -175,7 +176,7 @@
   ((jcall "getLoaded" _)))
 
 
-#|
+
 LOTS of STUMBLING
 
 (parse '(sym :dot field))
