@@ -269,48 +269,65 @@ want to avoid the overhead of the dynamic dispatch."
                (with-constant-signature ,(cdr fname-jname-pairs)
                  ,@body)))))))
 
+(defvar *class-lookup-overrides*)
+
+(defmacro with-class-lookup-disambiguated (overrides &body body)
+  "Suppose you have code that references class using the symbol 'object, and this is ambiguous. E.g. in my system java.lang.Object, org.omg.CORBA.Object. Use (with-class-lookup-disambiguated (lang.object) ...). Within dynamic scope, find-java-class first sees if any of these match, and if so uses them to lookup the class."
+  `(let ((*class-lookup-overrides* ',overrides))
+     ,@body))
+
+(defun maybe-found-in-overridden (name)
+  (when (boundp '*class-lookup-overrides*)
+      (let ((found (find-if (lambda(el) (#"matches" (string el) (concatenate 'string "(?i).*" (string name) "$")))
+			    *class-lookup-overrides*)))
+	(if found
+	    (let ((*class-lookup-overrides* nil))
+	      (lookup-class-name found))))))
+    
 (defun lookup-class-name (name
                           &key
                             (table *class-name-to-full-case-insensitive*)
                             (muffle-warning nil)
                             (return-ambiguous nil))
-  (setq name (string name))
-  (let* (;; cant (last-name-pattern (#"compile" '|java.util.regex.Pattern| ".*?([^.]*)$"))
-         ;; reason: bootstrap - the class name would have to be looked up...
-         (last-name-pattern (load-time-value (jstatic (jmethod "java.util.regex.Pattern" "compile"
-                                                               (jclass "java.lang.String"))
-                                                      (jclass "java.util.regex.Pattern") 
-                                                      ".*?([^.]*)$")))
-         (last-name 
-          (let ((matcher (#0"matcher" last-name-pattern name)))
-            (#"matches" matcher)
-            (#"group" matcher 1))))
-    (let* ((bucket (gethash last-name table))
-           (bucket-length (length bucket)))
-      (or (find name bucket :test 'equalp)
-          (flet ((matches-end (end full test)
-                   (= (+ (or (search end full :from-end t :test test) -10)
-                         (length end))
-                      (length full)))
-                 (ambiguous (choices)
-		   (if return-ambiguous 
-		       (return-from lookup-class-name choices)
-		       (error "Ambiguous class name: ~a can be ~{~a~^, ~}" name choices))))
-            (if (zerop bucket-length)
-		(progn
-                  (unless muffle-warning (warn "can't find class named ~a" name)) nil)
-                (let ((matches (loop for el in bucket when (matches-end name el 'char=) collect el)))
-                  (if (= (length matches) 1)
-                      (car matches)
-                      (if (= (length matches) 0)
-                          (let ((matches (loop for el in bucket when (matches-end name el 'char-equal) collect el)))
-                            (if (= (length matches) 1)
-                                (car matches)
-                                (if (= (length matches) 0)
-				    (progn
-                                      (unless muffle-warning (warn "can't find class named ~a" name)) nil)
-                                    (ambiguous matches))))
-                          (ambiguous matches))))))))))
+  (or (maybe-found-in-overridden name)
+      (progn
+	(setq name (string name))
+	(let* (	;; cant (last-name-pattern (#"compile" '|java.util.regex.Pattern| ".*?([^.]*)$"))
+	       ;; reason: bootstrap - the class name would have to be looked up...
+	       (last-name-pattern (load-time-value (jstatic (jmethod "java.util.regex.Pattern" "compile"
+								     (jclass "java.lang.String"))
+							    (jclass "java.util.regex.Pattern") 
+							    ".*?([^.]*)$")))
+	       (last-name 
+		 (let ((matcher (#0"matcher" last-name-pattern name)))
+		   (#"matches" matcher)
+		   (#"group" matcher 1))))
+	  (let* ((bucket (gethash last-name table))
+		 (bucket-length (length bucket)))
+	    (or (find name bucket :test 'equalp)
+		(flet ((matches-end (end full test)
+			 (= (+ (or (search end full :from-end t :test test) -10)
+			       (length end))
+			    (length full)))
+		       (ambiguous (choices)
+			 (if return-ambiguous 
+			     (return-from lookup-class-name choices)
+			     (error "Ambiguous class name: ~a can be ~{~a~^, ~}" name choices))))
+		  (if (zerop bucket-length)
+		      (progn
+			(unless muffle-warning (warn "can't find class named ~a" name)) nil)
+		      (let ((matches (loop for el in bucket when (matches-end name el 'char=) collect el)))
+			(if (= (length matches) 1)
+			    (car matches)
+			    (if (= (length matches) 0)
+				(let ((matches (loop for el in bucket when (matches-end name el 'char-equal) collect el)))
+				  (if (= (length matches) 1)
+				      (car matches)
+				      (if (= (length matches) 0)
+					  (progn
+					    (unless muffle-warning (warn "can't find class named ~a" name)) nil)
+					  (ambiguous matches))))
+				(ambiguous matches))))))))))))
 
 (defun get-all-jar-classnames (jar-file-name)
   (let* ((jar (jnew (jconstructor "java.util.jar.JarFile" (jclass "java.lang.String")) (namestring (truename jar-file-name))))
