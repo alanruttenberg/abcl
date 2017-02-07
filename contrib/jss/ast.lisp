@@ -3,16 +3,19 @@
 (defvar *javaparsers* (make-hash-table :test 'equalp))
 
 (defmacro def-javaparse (ast-class fields &body body)
-  (let ((class (find-java-class (concatenate 'string "com.github.javaparser.ast.expr." (string ast-class)))))
+  (let ((class (find-java-class (concatenate 'string "com.github.javaparser.ast.expr." (string ast-class))))
+	(fname (intern (format nil "PARSE-~a" (string-upcase (string ast-class))))))
     `(setf (gethash ,class *javaparsers*)
-	   (lambda(node)
-	     (let ,(loop for field in fields 
-			  for jfield across (#"getDeclaredFields" class)
-			  collect (list field `#"{node}.{,jfield}"))
-	       ,@body)))))
+	   (flet ((,fname (node)
+		    (let ,(loop for field in fields 
+				for jfield across (#"getDeclaredFields" class)
+				collect (list field `#"{node}.{,jfield}"))
+		      ,@body)))
+	     #',fname))))
 
 (def-javaparse LongLiteralExpr nil
   (#"getValue" node))
+
 (def-javaparse BooleanLiteralExpr (value)
   (#"getValue" node))
 (def-javaparse IntegerLiteralExpr nil
@@ -28,7 +31,7 @@
 
 (def-javaparse ObjectCreationExpr (scope type typeArguments arguments anonymousClassBody)
   (declare (ignore anonymousClassBody typeArguments scope))
-  `(new ,(ast-to-sexp (#"getName" type)) ,@(mapcar 'ast-to-sexp (j2list arguments)))
+  `(new ',(ast-to-sexp (#"getName" type)) ,@(mapcar 'ast-to-sexp (j2list arguments)))
   )
     
 (defun ast-to-sexp (node)
@@ -41,7 +44,9 @@
 (defun maybe-class (el)
   (if (and (symbolp el) (upper-case-p (char (string el) 0)))
       `(find-java-class ',el)
-      el))
+      (if (symbolp el)
+	  (intern (string-upcase el))
+	  el)))
 
 (def-javaparse MethodCallExpr (scope typeArguments name arguments)
   (declare (ignore typeArguments))
@@ -57,8 +62,8 @@
 (def-javaparse FieldAccessExpr ()
   (let ((scope (ast-to-sexp (#"getScope" node))))
     (if (and (symbolp scope) (upper-case-p (char (string scope) 0)))
-	`(get-java-field ',(ast-to-sexp (#"getScope" node)) ,(ast-to-sexp (#"getField" node)))
-	`(get-java-field ,(ast-to-sexp (#"getScope" node)) ,(ast-to-sexp (#"getField" node))))))
+	`(get-java-field ',(ast-to-sexp (#"getScope" node)) ,(maybe-class (ast-to-sexp (#"getField" node))))
+	`(get-java-field ,(maybe-class (ast-to-sexp (#"getScope" node))) ,(maybe-class (ast-to-sexp (#"getField" node)))))))
 
 (def-javaparse ClassExpr (type)
   `(find-java-class ',(ast-to-sexp (#"getName" type))))

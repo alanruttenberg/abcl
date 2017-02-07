@@ -1,3 +1,4 @@
-(asdf:defsystem javaparser
+(asdf:defsystem :javaparser
   :description "https://github.com/javaparser/javaparser"
-  :components ((:mvn "com.github.javaparser/javaparser-core/3.0.1")))
+  :components ((:mvn "com.github.javaparser/javaparser-core/3.0.1")
+	       (:file "ast")))
