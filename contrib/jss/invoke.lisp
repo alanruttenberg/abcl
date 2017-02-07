@@ -498,7 +498,7 @@ associated is used to look up the static FIELD."
   (when *do-auto-imports* 
     (do-auto-imports)))
 
-(defun japropos (string)
+(defun japropos (string &optional (fn (lambda(match type bundle?) (format t "~a: ~a~a~%" match type bundle?))))
   "Output the names of all Java class names loaded in the current process which match STRING.."
   (flet ((searchit (table &optional bundle-name)
 	   (let ((bundle? (if bundle-name (format nil ", Bundle: ~a" bundle-name) "")))
@@ -511,8 +511,7 @@ associated is used to look up the static FIELD."
 				  do (pushnew (list class "Java Class") matches :test 'equal)))
 			table)
 	       (loop for (match type) in (sort matches 'string-lessp :key 'car)
-		     do (format t "~a: ~a~a~%" match type bundle?))
-	       ))))
+		     do (funcall fn  match type bundle?))))))
     (searchit *class-name-to-full-case-insensitive*)
     (loop for (name nil table) in *loaded-osgi-bundles*
 	  do (searchit table name))))
