@@ -292,7 +292,7 @@ above have used annotate local functions"
 (defun local-function-p (function)
   "Helper function. Tests whether a function wasn't defined at top
   level based on function-plist annotations"
-  (and (functionp function)
+  (and (and (functionp function) (not (typep function 'generic-function)))
        (let ((plist  (sys::function-plist function)))
 	 (or (getf plist :internal-to-function)
 	     (getf plist :method-function)
