@@ -41,6 +41,9 @@
     (return-from ast-to-sexp nil))
   (funcall (gethash (jobject-class node) *javaparsers*) node))
 
+(defun read-java-expression (expression)
+  (ast-to-sexp (#"parseExpression" 'javaparser expression)))
+
 (defun maybe-class (el)
   (if (and (symbolp el) (upper-case-p (char (string el) 0)))
       `(find-java-class ',el)
