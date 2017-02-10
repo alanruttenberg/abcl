@@ -288,7 +288,8 @@ want to avoid the overhead of the dynamic dispatch."
                           &key
                             (table *class-name-to-full-case-insensitive*)
                             (muffle-warning nil)
-                            (return-ambiguous nil))
+                            (return-ambiguous nil)
+			    &aux (symbol? (symbolp name)))
   (or (maybe-found-in-overridden name)
       (progn
 	(setq name (string name))
@@ -316,7 +317,7 @@ want to avoid the overhead of the dynamic dispatch."
 		  (if (zerop bucket-length)
 		      (progn
 			(unless muffle-warning (warn "can't find class named ~a" name)) nil)
-		      (let ((matches (loop for el in bucket when (matches-end name el 'char=) collect el)))
+		      (let ((matches (loop for el in bucket when (matches-end name el (if symbol? 'char-equal 'char=)) collect el)))
 			(if (= (length matches) 1)
 			    (car matches)
 			    (if (= (length matches) 0)
