@@ -330,6 +330,14 @@ want to avoid the overhead of the dynamic dispatch."
 					  (ambiguous matches))))
 				(ambiguous matches))))))))))))
 
+(defun shortest-unambiguous-java-class-abbreviation(name &optional as-string?)
+  (let ((components (mapcar (if as-string? 'identity 'string-upcase) (split-at-char name #\.))))
+    (loop for size from 1 to (length components)
+	  for abbreviation = (funcall (if as-string? 'identity (lambda(e) (intern (string-upcase e))))
+				      (format nil "~{~a~^.~}" (subseq components (- (length components) size) (length components))))
+	  for possible = (jss::lookup-class-name abbreviation :return-ambiguous t)
+	  when (not (listp possible)) do (return-from shortest-unambiguous-java-class-abbreviation abbreviation))))
+
 (defun get-all-jar-classnames (jar-file-name)
   (let* ((jar (jnew (jconstructor "java.util.jar.JarFile" (jclass "java.lang.String")) (namestring (truename jar-file-name))))
          (entries (#"entries" jar)))
