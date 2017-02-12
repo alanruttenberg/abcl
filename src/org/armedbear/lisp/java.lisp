@@ -463,7 +463,7 @@ is equivalent to the following Java code:
 ;;e.g. (defmethod java::print-java-object-by-class ((class (eql ':|uk.ac.manchester.cs.owl.owlapi.concurrent.ConcurrentOWLOntologyImpl|)) obj stream) 
 ;;	   (print 'hi)
 ;;         (call-next-method))
-(defmethod print-java-object-by-class :around (class object stream)
+(defmethod print-java-object-by-class :around (class obj stream)
   (handler-bind ((java-exception #'(lambda(c)
 				     (format stream "#<~a, while printing a ~a>"
 					     (jcall "toString" (java-exception-cause  c))
