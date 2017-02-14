@@ -23,7 +23,9 @@
 (let ((where (merge-pathnames "jss-tests.lisp" (load-time-value *load-pathname*))))
   (defun cl-user::test-jss()
     (funcall (intern "QUICKLOAD" 'ql) :prove)
-    (funcall (intern "RUN" 'prove) where)))
+    (progv  (list (intern "*DEFAULT-TEST-FUNCTION*" :prove)) (list (function equalp))
+      (print (intern "*DEFAULT-TEST-FUNCTION*" :prove))
+      (funcall (intern "RUN" 'prove) where))))
 
 ;; (asdf:defsystem :jss/tests
 ;;   :depends-on (jss)

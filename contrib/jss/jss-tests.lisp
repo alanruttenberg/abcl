@@ -23,8 +23,9 @@
 (defun optimized-jss (count)
   (loop repeat count do (#"compile" 'regex.Pattern ".*")))
 
-(defun unoptimized-jss (count)
-  (loop repeat count do (#"compile" 'regex.Pattern ".*")))
+(let ((jss::*inhibit-jss-optimization* t))
+  (defun unoptimized-jss (count)
+  (loop repeat count do (#"compile" 'regex.Pattern ".*"))))
 
 (defun just-loop (count)
   (loop repeat count))
@@ -32,6 +33,7 @@
 (let ((jss::*inhibit-jss-optimization* nil))
   (compile 'just-loop)
   (compile 'optimized-jss))
+
 (let ((jss::*inhibit-jss-optimization* t))
   (compile 'unoptimized-jss))
 
@@ -41,10 +43,10 @@
     (- (#"currentTimeMillis" 'system) start)))
 
 
-(is-type (let ((just-loop (cl-user::print-db (timeit (just-loop 10000)))))
+(is-type (let ((just-loop  (timeit (just-loop 10000))))
 	   (+ 0.0 
-	      (print (/ (-  (timeit (optimized-jss 10000)) just-loop)
-			(-  (timeit (unoptimized-jss 10000)) just-loop)))))
+	      (/ (-  (timeit (optimized-jss 10000)) just-loop)
+			(-  (timeit (unoptimized-jss 10000)) just-loop))))
 	 '(float 0 0.1))
 
 (is (let* ((jss::*inhibit-jss-optimization* nil)
@@ -56,4 +58,38 @@
 
 (finalize)
 
+(plan 1)
 
+(in-package :jss)
+(defparameter expanded '(let ((jss::this jss::*object-for-this*))
+      (jcall "getLoaded"
+	     (jcall "load"
+		    (jcall "make"
+			   (jcall "intercept"
+				  (jcall "method"
+					 (jcall "subclass"
+						(new '|ByteBuddy|)
+						(find-java-class '|Object|)
+						t)
+					 (jstatic "named"
+						  '|ElementMatchers|
+						  "toString"))
+				  (jstatic "value"
+					   '|FixedValue|
+					   "Hello World!")))
+		    (jcall "getClassLoader"
+			   (jcall "getClass" jss::this))))))
+
+(defparameter source '#1"new ByteBuddy().subclass(Object.class,t)
+   .method(ElementMatchers.named("toString"))
+   .intercept(FixedValue.value("Hello World!"))
+   .make()
+   .load(getClass().getClassLoader())
+   .getLoaded()" )
+
+(in-package :jss-test)
+
+(is jss::source
+    jss::expanded)
+
+(finalize)
