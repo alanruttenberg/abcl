@@ -471,7 +471,14 @@ is equivalent to the following Java code:
 				     (return-from print-java-object-by-class))))
     (call-next-method)))
 
-(defmethod print-java-object-by-class (class obj stream)  
+;; we have to do our own inheritence for the java class
+(defmethod print-java-object-by-class (class obj stream)
+  (loop for super = (jclass-superclass class)
+	for keyword = (intern (jcall "getName" super) 'keyword)
+	for method = (find-method #'print-java-object-by-class nil (list `(eql ,keyword) t t) nil)
+	while (jclass-superclass super)
+	when method do (return-from print-java-object-by-class
+			 (print-java-object-by-class keyword obj stream)))
   (write-string (sys::%write-to-string obj) stream))
 
 (defmethod print-object ((e java:java-exception) stream)
