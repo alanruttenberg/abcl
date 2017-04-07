@@ -14,6 +14,7 @@
    (:module base :pathname "" 
             :components
             ((:file "abcl-asdf")
+	     (:file "mvn-module" :depends-on ("abcl-asdf"))
              (:file "asdf-jar" 
                     :depends-on ("abcl-asdf"))
              (:file "maven-embedder" 
