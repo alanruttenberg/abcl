@@ -127,3 +127,8 @@ If INVERT? is non-nil than reverse the keys and values in the resulting hashtabl
 	    ((jcall isinstance (load-time-value (jclass "java.util.Dictionary")) thing) (iterator-collect (#"elements" thing)))
 	    ((ignore-errors (#"toArray" thing)) (coerce (#"toArray" thing) 'list))
 	    (t (error "yet another iteration type - fix it: ~a" (jclass-name (jobject-class thing))))))))
+
+(defun to-hashset (list)
+  (let ((set (new 'hashset)))
+    (loop for l in list do (#"add" set l))
+    set))
