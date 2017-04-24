@@ -473,7 +473,7 @@ is equivalent to the following Java code:
 
 ;; we have to do our own inheritence for the java class
 (defmethod print-java-object-by-class (class obj stream)
-  (loop for super = (jclass-superclass class)
+  (loop for super = class then (jclass-superclass super)
 	for keyword = (intern (jcall "getName" super) 'keyword)
 	for method = (find-method #'print-java-object-by-class nil (list `(eql ,keyword) t t) nil)
 	while (jclass-superclass super)
