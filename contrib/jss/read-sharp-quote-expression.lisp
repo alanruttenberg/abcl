@@ -1,5 +1,6 @@
 (in-package :jss)
 
+(defclass sharp-quote-expression-reader (javaparser) ())
 
 (defun read-sharp-java-expression (stream)
   (read-sharp-quote-expression
@@ -55,7 +56,7 @@
 	  el)))
 
 (def-java-read ObjectCreationExpr sharp-quote-expression-reader ()
-  `(new ',(process-node obj (#"getName" (#"getType" node))) ,@(mapcar 'process-node obj (j2list (#"getArguments" node))))
+  `(new ',(process-node obj (#"getName" (#"getType" node))) ,@(mapcar (lambda(e) (process-node obj e)) (j2list (#"getArguments" node))))
   )
 
 (def-java-read MethodCallExpr sharp-quote-expression-reader ()
@@ -70,7 +71,6 @@
 										      (j2list (#"getArguments" node)))))
     ))
 
-(defclass sharp-quote-expression-reader (javaparser) ())
 
 (def-java-read FieldAccessExpr sharp-quote-expression-reader ()
   (let ((scope (process-node obj (#"getScope" node))))
