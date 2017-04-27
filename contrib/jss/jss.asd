@@ -1,7 +1,7 @@
 (require :asdf)
 (in-package :cl-user)
 
-(asdf:defsystem :jss
+(asdf:defsystem jss
   :author "Alan Ruttenberg, Mark Evenson"
   :long-description "<urn:abcl.org/release/1.5.0/contrib/jss#>"
   :version "3.2.3" 
@@ -15,9 +15,20 @@
 				     (:file "optimize-java-call")
 				     (:file "transform-to-field")
                                      (:file "compat"))))
-;;  :defsystem-depends-on (:prove-asdf)
-;;  :in-order-to ((test-op (test-op jss/tests)))
-  )
+  :perform (asdf:test-op (op c)
+                         (asdf:test-system :jss/tests)))
+
+
+(asdf:defsystem jss/tests
+  :defsystem-depends-on (quicklisp-abcl
+                         prove-asdf)
+  :depends-on (jss
+               prove)
+  :components ((:module tests
+                        :pathname "" 
+                        :components ((:test-file "jss-tests"))))
+  :perform (asdf:test-op (op c)
+                         (uiop:symbol-call :prove-asdf 'run-test-system c)))
 
 ;; Until prove-asdf works
 (let ((where (merge-pathnames "jss-tests.lisp" (load-time-value *load-pathname*))))
@@ -27,14 +38,6 @@
       (print (intern "*DEFAULT-TEST-FUNCTION*" :prove))
       (funcall (intern "RUN" 'prove) where))))
 
-;; (asdf:defsystem :jss/tests
-;;   :depends-on (jss)
-;;   :components ((:module tests
-;; 		:pathname "" 
-;; 		:components ((:test-file "jss-tests"))
-;; 		))
-;;   :perform (test-op :after (op c)
-;;                     (funcall (intern #.(string :run) :prove) c)))
 
 
 

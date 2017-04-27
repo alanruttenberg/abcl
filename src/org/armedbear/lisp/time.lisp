@@ -42,8 +42,6 @@
 (defconstant november-17-1858 678882)
 (defconstant weekday-november-17-1858 2)
 
-
-
 ;;; decode-universal-time universal-time &optional time-zone
 ;;; => second minute hour date month year day daylight-p zone
 ;;; If time-zone is not supplied, it defaults to the current time zone adjusted
@@ -129,10 +127,7 @@
 		  (* (- year 1900) 365)))
 	 (hours (+ hour (* days 24))))
     (cond (time-zone
-           (let* ((tz-guess (ext:get-time-zone (* hours 3600)))
-		  (guess (+ second (* 60 (+ minute (* 60 (+ hours tz-guess))))))
-		  (tz (get-time-zone guess)))
-             (+ guess (* 3600 (- tz tz-guess)))))
+           (+ second (* (+ minute (* (+ hours time-zone) 60)) 60)))
           ((> year 2037)
            (labels ((leap-year-p (year)
                       (cond ((zerop (mod year 400)) t)
@@ -147,11 +142,7 @@
                              (- (leap-years-before year)
                                 (leap-years-before fake-year))))))))
           (t
-           (+ second (* (+ minute (* (+ hours (default-time-zone)) 60)) 60))))))
-
-#|
-(intern "GET-TIME-ZONE" (find-package :ext))
-(define-symbol-macro EXT:GET-TIME-ZONE
-    `(get-time-zone))
-(export (intern "GET-TIME-ZONE" (find-package :ext)))
-#|
+           (let* ((tz-guess (ext:get-time-zone (* hours 3600)))
+		  (guess (+ second (* 60 (+ minute (* 60 (+ hours tz-guess))))))
+		  (tz (get-time-zone guess)))
+	     (+ guess (* 3600 (- tz tz-guess))))))))
