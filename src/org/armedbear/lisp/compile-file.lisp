@@ -313,6 +313,7 @@ interpreted toplevel form, non-NIL if it is 'simple enough'."
     (let ((sym (if (consp name) (second name) name)))
       `(put ',sym 'sys::source (cons '(,type ,(namestring *source*) ,*source-position*)
 					 (get ',sym  'sys::source nil))))))
+
 	  
 (declaim (ftype (function (t t t) t) process-toplevel-mop.ensure-method))
 (defun process-toplevel-mop.ensure-method (form stream compile-time-too)
@@ -474,6 +475,7 @@ interpreted toplevel form, non-NIL if it is 'simple enough'."
 		     `(put ',sym 'sys::source
 			   (cons `((:method ,',sym ,',qualifiers ,',specializers) ,,(namestring *source*) ,,*source-position*)
 				 (get ',sym  'sys::source nil)))))))))
+
 
 (declaim (ftype (function (t t t) t) process-toplevel-locally))
 (defun process-toplevel-locally (form stream compile-time-too)

@@ -6,8 +6,8 @@
 (defun ensure-compatibility ()
   "Ensure backwards compatibility with JSS's use of CL-USER."
   (require 'abcl-asdf)
-  (loop :for symbol :in '("ADD-DIRECTORY-JARS-TO-CLASS-PATH"
-                          "NEED-TO-ADD-DIRECTORY-JAR?")
+  (loop :for symbol :in '("add-directory-jars-to-class-path"
+                          "need-to-add-directory-jar?")
         :do 
           (unintern (intern symbol "CL-USER") :cl-user)
         :do
@@ -18,7 +18,7 @@
          :do 
            (unintern symbol :cl-user)
          :and :do
-           (shadowing-import symbol :cl-user)))
+           (import symbol :cl-user)))
   (setf *cl-user-compatibility* t))
 
 ;;; Because we're the last file in the ASDF system at the moment
