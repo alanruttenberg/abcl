@@ -5,7 +5,7 @@
 
 (in-package :jss-test)
 
-(plan 8)
+(plan 6)
 
 (is (read-from-string "#\"{bar}.{foo}\"") '(get-java-field bar foo t))
 (is (read-from-string "#\"q.bar.{foo}\"") '(get-java-field (load-time-value (find-java-class "q.bar")) foo t))
@@ -33,7 +33,6 @@
 (let ((jss::*inhibit-jss-optimization* nil))
   (compile 'just-loop)
   (compile 'optimized-jss))
-
 (let ((jss::*inhibit-jss-optimization* t))
   (compile 'unoptimized-jss))
 
@@ -43,18 +42,20 @@
     (- (#"currentTimeMillis" 'system) start)))
 
 
-(is-type (let ((just-loop  (timeit (just-loop 10000))))
+(plan 1)
+(is-type (let ((just-loop (timeit (just-loop 10000))))
 	   (+ 0.0 
 	      (/ (-  (timeit (optimized-jss 10000)) just-loop)
 			(-  (timeit (unoptimized-jss 10000)) just-loop))))
 	 '(float 0 0.1))
 
-(is (let* ((jss::*inhibit-jss-optimization* nil)
-	   (optimized-jss (macroexpand (precompiler::precompile-form '(#"compile" 'regex.Pattern ".*") t))))
-      (let* ((jss::*inhibit-jss-optimization* t)
-	     (unoptimized-jss (macroexpand (precompiler::precompile-form '(#"compile" 'regex.Pattern ".*") t))))
-	(and (eq (car optimized-jss) 'jstatic)
-	     (eq (caar unoptimized-jss) 'lambda)))))
+(plan 2)
+(let* ((jss::*inhibit-jss-optimization* nil)
+       (optimized-jss (macroexpand (precompiler::precompile-form '(#"compile" 'regex.Pattern ".*") t))))
+  (let* ((jss::*inhibit-jss-optimization* t)
+         (unoptimized-jss (macroexpand (precompiler::precompile-form '(#"compile" 'regex.Pattern ".*") t))))
+    (is (car optimized-jss) 'java:jstatic)
+    (is (caar unoptimized-jss) 'lambda)))
 
 (finalize)
 
