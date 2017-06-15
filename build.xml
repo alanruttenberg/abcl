@@ -197,7 +197,7 @@ For help on the automatic tests available, use the Ant target 'help.test'.
             depends="abcl.init,abcl.java.warning">
       <mkdir dir="${build.dir}"/>
       <mkdir dir="${build.classes.dir}"/>
-      <!-- abcl-1.5.0: Stock build for Java 1.6 (aka Java 2) container -->
+      <!-- Stock build for Java 1.6 (aka Java 2) container -->
       <javac destdir="${build.classes.dir}"
              debug="true"
              target="1.6"
@@ -217,8 +217,9 @@ For help on the automatic tests available, use the Ant target 'help.test'.
       <include name="abcl.asd"/> 
       <include name="build.xml"/>
       <include name="abcl.properties.in"/> <!--TODO: massage into abcl.properties at build-time -->
-      <include name="abcl.bat"/>
+      <include name="abcl.in"/>
       <include name="abcl.bat.in"/>
+      <include name="etc/ant/*.xml"/>
     </patternset>
 
     <target name="abcl.stage"
@@ -508,7 +509,7 @@ from ${abcl.home.dir}
       </jar>
     </target>
 
-    <target name="abcl-aio.jar" depends="abcl.compile,abcl.version">
+    <target name="abcl-aio.jar" depends="abcl.compile,abcl.stamp">
       <mkdir dir="${dist.dir}"/>
       <jar destfile="${abcl-aio.jar.path}"
            compress="true"
@@ -762,14 +763,10 @@ will compile (if necessary) and load JSS.
 
       <include name="build-from-lisp.bash"/>
       
-      <!-- The remainder of these files are used by the Lisp hosted
-           build in 'build-abcl.lisp' but not used by Ant, so include
-           them in the source distribution. -->
-      <include name="make-jar.in"/>
-      <include name="make-jar.bat.in"/>
-
       <include name="build-abcl.lisp"/>
       <include name="customizations.lisp.in"/>
+
+      <include name="etc/ant/*.xml"/>
 
     </patternset>
 
@@ -782,7 +779,7 @@ will compile (if necessary) and load JSS.
       <include name="META-INF/services/javax.script.ScriptEngineFactory"/>
     </patternset>
 
-    <target name="abcl.source.prepare" depends="abcl.stamp.version">
+    <target name="abcl.source.prepare" depends="abcl.stamp">
       <property name="abcl.build.src.dir"
                 value="${build.dir}/abcl-src-${abcl.version}"/>
       <mkdir dir="${abcl.build.src.dir}/src"/>
@@ -1229,10 +1226,10 @@ user.dir
             tofile="${dist.dir}/asdf.pdf"/>
     </target>
 
-    <import file="netbeans-build.xml" optional="true"/> 
-<!--    <import file="j-build.xml" optional="true"/>  -->
-    <import file="not.org-build.xml" optional="true"/> 
-    
-    <import file="build-snapshot.xml" optional="true"/>
-
-    <import file="build-maven.xml" optional="true"/> </project>
+    <import file="etc/ant/netbeans-build.xml"
+            optional="true"/> 
+    <import file="etc/ant/build-snapshot.xml"
+            optional="true"/>
+    <import file="etc/ant/build-maven.xml"
+            optional="true"/>
+  </project>
