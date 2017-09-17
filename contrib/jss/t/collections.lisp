@@ -1,0 +1,30 @@
+(in-package :cl-user)
+
+(let ((set (list 2 3 5 7 11)))
+  (prove:plan 2)
+  (prove:is-type (jss:to-hashset set)
+                 'java:java-object
+                 "Checking whether JSS:TO-HASHSET produces a Java object…")
+  (prove:ok (jss:jmap 'constantly
+                      (java:jnew-array "java.lang.Integer" 10))
+            "Checking JSS:JMAP on Java array of java.lang.Integer…")
+  (prove:ok (jss:j2list (java:jnew-array "java.lang.Integer" 10))
+            "Checking JSS:J2LIST on Java array of java.langInteger…")
+  (prove:is (let (list)
+              (jss:jmap (lambda (x) (push x list))
+                        (let ((jarray (java:jnew-array "int" 3)))
+                          (jarray-set jarray 1 1)
+                          (jarray-set jarray 2 2)
+                          jarray))
+              (nreverse list))
+            '(0 1 2)
+            "Checking JSS:JMAP on Java array of int…")
+  (prove:is (jss:j2list (let ((jarray (java:jnew-array "int" 3)))
+                          (jarray-set jarray 1 1)
+                          (jarray-set jarray 2 2)
+                          jarray))
+            '(0 1 2)
+            "Checking JSS:J2LIST on Java array of int…"))
+
+(prove:finalize)
+
