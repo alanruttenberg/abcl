@@ -62,5 +62,16 @@
   (let ((symbol (intern (#"getIdentifier" node))))
     symbol))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun read-invoke/javaparser (stream char arg) 
+    (if (eql arg 1)
+
+        (if (ignore-errors
+              (jclass "com.github.javaparser.ParseStart"))         ;; chosen randomly, TODO memoize
+            (read-sharp-java-expression stream)
+            ;; Deal with possiblity of not loading jar
+            (error "Cannot load javaparser code needed for the #1 macro"))
+        (read-invoke stream char arg)))
+  (set-dispatch-macro-character #\# #\" 'read-invoke/javaparser))
 
 
