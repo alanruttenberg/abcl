@@ -484,7 +484,7 @@ Returns the Maven specific string for the artifact "
      (jss:new 'aether.repository.RemoteRepository id type url))))
 
 (defparameter *default-repository* 
-  "http://repo1.maven.org/maven2/")
+  "http://central.maven.org/maven2/")
 
 (defun add-repository (repository)
   (ensure-remote-repository :repository repository))
