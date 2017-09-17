@@ -1307,7 +1307,7 @@ public class Pathname extends LispObject {
     public static final Pathname makePathname(File file) {
         String namestring = null;
         try {
-            namestring = file.getCanonicalPath();
+            namestring = file.getCanonicalPath().replaceAll("\\*","\\\\*");
         } catch (IOException e) {
             Debug.trace("Failed to make a Pathname from "
               + "." + file + "'");
@@ -1679,7 +1679,7 @@ public class Pathname extends LispObject {
                             if (resolveSymlinks == NIL) {
                               path = file.getAbsolutePath();
                             } else {
-                              path = file.getCanonicalPath();
+                              path = file.getCanonicalPath().replaceAll("\\*","\\\\*");
                             }
                             URI pathURI = (new File(path)).toURI();
                             p = new Pathname(pathURI);
@@ -2207,7 +2207,7 @@ public class Pathname extends LispObject {
                     result = Pathname.getDirectoryPathname(file);
                 } else {
                     try {
-                        result = new Pathname(file.getCanonicalPath());
+                        result = new Pathname(file.getCanonicalPath().replaceAll("\\*","\\\\*"));
                     } catch (IOException e) {
                         return error(new FileError(e.getMessage(), pathname));
                     }
@@ -2738,7 +2738,7 @@ public class Pathname extends LispObject {
     }
     public static Pathname getDirectoryPathname(File file) {
         try {
-            String namestring = file.getCanonicalPath();
+            String namestring = file.getCanonicalPath().replaceAll("\\*","\\\\*");
             if (namestring != null && namestring.length() > 0) {
                 if (namestring.charAt(namestring.length() - 1) != File.separatorChar) {
                     namestring = namestring.concat(File.separator);
