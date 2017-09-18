@@ -294,18 +294,19 @@ hint."
      (declare (ignore wagon)))))
 
 (defun find-service-locator ()
-  (or 
-   (ignore-errors
-     ;; maven-3.1.0
-     (#"newServiceLocator" 'org.apache.maven.repository.internal.MavenRepositorySystemUtils)) 
-   (ignore-errors
-     ;; maven-3.0.4
-     (java:jnew "org.apache.maven.repository.internal.MavenServiceLocator")) 
-   (ignore-errors
-     (java:jnew "org.apache.maven.repository.internal.DefaultServiceLocator"))
+  (or
    (ignore-errors
      ;; maven-3.1.0 using org.eclipse.aether...
-     (jss:find-java-class 'aether.impl.DefaultServiceLocator))))
+     (jss:new "aether.impl.DefaultServiceLocator"))
+   (ignore-errors
+     ;; maven-3.0.4
+     (jss:new "org.apache.maven.repository.internal.MavenServiceLocator")) 
+   (ignore-errors
+     (jss:new "org.apache.maven.repository.internal.DefaultServiceLocator"))
+   (ignore-errors
+     ;; maven-3.1.0
+     (#"newServiceLocator" 'org.apache.maven.repository.internal.MavenRepositorySystemUtils))))
+
 
 (defun make-repository-system ()
   (unless *init* (init))
@@ -332,9 +333,9 @@ hint."
         (repository-connector-factory-class 
          (or
           (ignore-errors
-            (jss:find-java-class 'org.eclipse.aether.spi.connector.RepositoryConnectorFactory))
-          (ignore-errors
             (jss:find-java-class 'aether.spi.connector.RepositoryConnectorFactory))
+          (ignore-errors
+            (jss:find-java-class 'org.eclipse.aether.spi.connector.RepositoryConnectorFactory))
           (ignore-errors 
             (java:jclass "org.sonatype.aether.spi.connector.RepositoryConnectorFactory"))))
         (repository-system-class
@@ -366,24 +367,27 @@ hint."
 
 (defun make-session (repository-system)
   "Construct a new aether.RepositorySystemSession from the specified REPOSITORY-SYSTEM."
-  (let ((session
-         (or 
-          (ignore-errors (#"newSession"
-                          'org.apache.maven.repository.internal.MavenRepositorySystemUtils))
-          (ignore-errors (java:jnew (jss:find-java-class "MavenRepositorySystemSession")))))
-        (local-repository 
-         (java:jnew (jss:find-java-class "LocalRepository")
-                    (namestring (merge-pathnames ".m2/repository/"
-                                                 (user-homedir-pathname))))))
-    (#"setLocalRepositoryManager" 
-     session
-     (or 
-      (ignore-errors      ;; maven-3.1.0
-        (#"newLocalRepositoryManager" 
-         repository-system session local-repository))
-      (ignore-errors 
-        (#"newLocalRepositoryManager" 
-         repository-system local-repository))))))
+  (with-aether ()
+    (let ((session
+           (or 
+            (ignore-errors
+              (jss:new "MavenRepositorySystemSession"))
+            (ignore-errors
+              (#"newSession"
+               'org.apache.maven.repository.internal.MavenRepositorySystemUtils))))
+          (local-repository 
+           (java:jnew (jss:find-java-class "LocalRepository")
+                      (namestring (merge-pathnames ".m2/repository/"
+                                                   (user-homedir-pathname))))))
+      (#"setLocalRepositoryManager"
+       session
+       (or 
+        (ignore-errors      ;; maven-3.1.0
+          (#"newLocalRepositoryManager" 
+           repository-system session local-repository))
+        (ignore-errors 
+          (#"newLocalRepositoryManager" 
+           repository-system local-repository)))))))
 
 (defparameter *maven-http-proxy* nil
   "A string containing the URI of an http proxy for Maven to use.")
@@ -484,7 +488,7 @@ Returns the Maven specific string for the artifact "
      (jss:new 'aether.repository.RemoteRepository id type url))))
 
 (defparameter *default-repository* 
-  "http://central.maven.org/maven2/")
+  "http://repo1.maven.org/maven2/")
 
 (defun add-repository (repository)
   (ensure-remote-repository :repository repository))
@@ -507,7 +511,8 @@ Returns the Maven specific string for the artifact "
 (defun resolve-dependencies (group-id artifact-id 
                              &key
                                (version "LATEST" versionp)
-                               (repository *maven-remote-repository* repository-p))
+                               (repository *maven-remote-repository* repository-p)
+                               (repositories NIL repositories-p))
   "Dynamically resolve Maven dependencies for item with GROUP-ID and ARTIFACT-ID 
 optionally with a VERSION and a REPOSITORY.  
 
@@ -529,12 +534,16 @@ in Java CLASSPATH representation."
                      artifact (java:jfield (jss:find-java-class "JavaScopes") "COMPILE")))
          (collect-request (java:jnew (jss:find-java-class "CollectRequest"))))
     (#"setRoot" collect-request dependency)
-     ;; Don't call addRepository if we explicitly specify a NIL repository
-    (unless (and repository-p (not repository))
-      (#"addRepository" collect-request 
-                        (if repository-p
-                            (ensure-remote-repository :repository repository)
-                            (ensure-remote-repository))))
+    (setf repositories-p (or repository-p repositories-p))
+    ;; Don't call addRepository if we explicitly specify a NIL repository
+    (cond
+      ((and (not repositories-p))
+       (#"addRepository" collect-request (ensure-remote-repository)))
+      (repository
+       (push repository repositories)))
+    (dolist (repository repositories)
+      (#"addRepository" collect-request
+                        (ensure-remote-repository :repository repository)))
     (let* ((node 
             (#"getRoot" (#"collectDependencies" (ensure-repository-system) (ensure-session) collect-request)))
            (dependency-request
