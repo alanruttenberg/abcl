@@ -17,6 +17,9 @@
                     :depends-on ("abcl-asdf"))
              (:file "maven-embedder" 
                     :depends-on ("abcl-asdf" "asdf-jar")))
-            :depends-on (package)))
+    :depends-on (package))
+   (:module osgi :pathname "" 
+            :components
+	    ((:file "asdf-osgi-bundle"))
+    :depends-on (base)))
   :in-order-to ((asdf:test-op (asdf:test-op abcl-asdf-tests))))
-
