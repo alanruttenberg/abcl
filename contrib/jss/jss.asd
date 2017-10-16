@@ -12,6 +12,7 @@
 				     (:file "osgi")
 				     (:file "optimize-java-call")
 				     (:file "transform-to-field")
-                                     (:file "compat"))))
+                                     (:file "compat")
+				     (:file "jtypecase"))))
   :perform (asdf:test-op (op c)
                          (asdf:test-system :jss-tests)))
