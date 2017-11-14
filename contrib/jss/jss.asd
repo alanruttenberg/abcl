@@ -13,6 +13,7 @@
 				     (:file "optimize-java-call")
 				     (:file "transform-to-field")
                                      (:file "compat")
-				     (:file "jtypecase"))))
+				     (:file "jtypecase")
+				     (:file "util"))))
   :perform (asdf:test-op (op c)
                          (asdf:test-system :jss-tests)))
