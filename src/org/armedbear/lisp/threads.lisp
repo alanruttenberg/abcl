@@ -42,9 +42,13 @@
 ;;
 
 (defun thread-function-wrapper (fun)
-  (restart-case
-      (funcall fun)
-    (abort () :report "Abort thread.")))
+  (catch 'destroy-thread
+    (restart-case
+	(funcall fun)
+      (abort () :report "Abort thread."))))
+
+(defun destroy-thread (thread)
+  (interrupt-thread thread (lambda() (throw 'destroy-thread t))))
 
 ;;
 ;; Mailbox implementation

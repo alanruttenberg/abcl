@@ -572,13 +572,46 @@ before the emitted code: the code is 'stack-neutral'."
     (emit-invokevirtual *this-class* "argCountError" nil nil)
     (label label1)))
 
+(declaim (special *saved-operands* *operand-representations*))
+(defmacro with-operand-accumulation ((&body argument-accumulation-body)
+                                     &body call-body)
+  "Macro used to operand-stack-safely collect arguments in the
+`argument-accumulation-body' to be available on the stack upon entry of the
+`call-body'. The argument-accumulation-body code may not assume arguments
+are actually on the stack while accumulating.
+
+This macro closes over a code-generating block. Operands can be collected
+using the `accumulate-operand', `compile-operand', `emit-variable-operand'
+and `emit-load-externalized-object-operand'."
+  `(let (*saved-operands*
+         *operand-representations*
+         (*register* *register*)
+         ) ;; hmm can we do this?? either body
+                                  ;; could allocate registers ...
+     ,@argument-accumulation-body
+     (load-saved-operands)
+     ,@call-body))
+
+(defvar *generate-thread-interrupt-code* t)
+
 (defun maybe-generate-interrupt-check ()
   (unless (> *speed* *safety*)
     (let ((label1 (gensym)))
       (emit-getstatic +lisp+ "interrupted" :boolean)
       (emit 'ifeq label1)
       (emit-invokestatic +lisp+ "handleInterrupt" nil nil)
-      (label label1))))
+      (label label1))
+    (when *generate-thread-interrupt-code*
+      (let ((label2 (gensym)))
+	(with-operand-accumulation
+	    ((emit-thread-operand)))
+	(emit-getfield +lisp-thread+ "threadInterrupted" :boolean)
+	(emit 'ifeq label2)
+	(aload *thread*)
+	(emit-invokevirtual +lisp-thread+ "processThreadInterrupts" nil nil)
+	(label label2)
+	))
+    ))
 
 (defknown single-valued-p (t) t)
 (defun single-valued-p (form)
@@ -672,25 +705,7 @@ before the emitted code: the code is 'stack-neutral'."
     (apply #'maybe-emit-clear-values forms-for-emit-clear)))
 
 
-(declaim (special *saved-operands* *operand-representations*))
-(defmacro with-operand-accumulation ((&body argument-accumulation-body)
-                                     &body call-body)
-  "Macro used to operand-stack-safely collect arguments in the
-`argument-accumulation-body' to be available on the stack upon entry of the
-`call-body'. The argument-accumulation-body code may not assume arguments
-are actually on the stack while accumulating.
 
-This macro closes over a code-generating block. Operands can be collected
-using the `accumulate-operand', `compile-operand', `emit-variable-operand'
-and `emit-load-externalized-object-operand'."
-  `(let (*saved-operands*
-         *operand-representations*
-         (*register* *register*)
-         ) ;; hmm can we do this?? either body
-                                  ;; could allocate registers ...
-     ,@argument-accumulation-body
-     (load-saved-operands)
-     ,@call-body))
 
 (defmacro accumulate-operand ((representation &key unsafe-p)
                               &body body)

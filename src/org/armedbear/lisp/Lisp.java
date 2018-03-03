@@ -484,6 +484,8 @@ public final class Lisp
     thread._values = null;
     if (interrupted)
       handleInterrupt();
+    if (thread.isInterrupted()) {
+      thread.processThreadInterrupts();}
     if (thread.isDestroyed())
       throw new ThreadDestroyed();
     if (obj instanceof Symbol)
@@ -827,6 +829,8 @@ public final class Lisp
                 {
                   if (interrupted)
                     handleInterrupt();
+		  if (thread.isInterrupted()) {
+		    thread.processThreadInterrupts();}
                   LispObject tag = current.cadr();
                   Binding binding = env.getTagBinding(tag);
                   if (binding == null)

@@ -74,7 +74,7 @@ public final class LispThread extends LispObject
     private boolean destroyed;
     final LispObject name;
     public LispObject[] _values;
-    private boolean threadInterrupted;
+    public boolean threadInterrupted;
     private LispObject pending = NIL;
     private Symbol wrapper =
         PACKAGE_THREADS.intern("THREAD-FUNCTION-WRAPPER");
@@ -171,13 +171,15 @@ public final class LispThread extends LispObject
         pending = new Cons(args, pending);
         pending = new Cons(function, pending);
         threadInterrupted = true;
-        javaThread.interrupt();
+	javaThread.interrupt();
     }
 
-    final synchronized void processThreadInterrupts()
+    public final synchronized void processThreadInterrupts()
 
     {
-        while (pending != NIL) {
+        threadInterrupted = false;
+
+	while (pending != NIL) {
             LispObject function = pending.car();
             LispObject args = pending.cadr();
             pending = pending.cddr();
