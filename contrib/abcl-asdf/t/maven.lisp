@@ -1,26 +1,16 @@
-#|
-(abcl-asdf:resolve-dependencies "log4j" "log4j")
+(in-package :cl-user)
 
+(prove:plan 5)
 
-|#
-(in-package :abcl-asdf/test)
+(prove:diag "Testing local bootable Maven version.")
 
-(plan 4)
+(multiple-value-bind (good version)
+    (abcl-asdf:ensure-mvn-version)
+  (prove:ok good)
+  (prove:is-type version 'list)
+  (prove:ok (every #'fixnump version)))
 
-(ok
- (diag "Testing local bootable Maven version.")
- (diag (format nil
-               "~{~&~a~}" (multiple-value-list (ensure-mvn-version)))))
+(prove:is-type (abcl-asdf:resolve-dependencies "log4j" "log4j") 'string)
+(prove:is-type (abcl-asdf:resolve "org.abcl/abcl") 'string)
 
-(ok 
- (let ((result (abcl-asdf:resolve-dependencies "log4j" "log4j")))
-   (and result
-        (diag (format nil"~&~A~%" result))
-        (type-p result 'cons))))
-(ok
- (abcl-asdf:resolve "org.abcl/abcl"))
-
-(finalize)
-
-
-
+(prove:finalize)

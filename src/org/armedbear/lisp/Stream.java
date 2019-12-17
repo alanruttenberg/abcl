@@ -396,7 +396,7 @@ public class Stream extends StructureObject {
     SortedMap<String, Charset> available = Charset.availableCharsets();
     Set<String> encodings = available.keySet();
     for (String charset : encodings) {
-      result.add(new Symbol(charset, PACKAGE_KEYWORD));
+      result.add (PACKAGE_KEYWORD.intern (charset));
     }
     return result;
   }
@@ -515,7 +515,7 @@ public class Stream extends StructureObject {
                 return error(new StreamError(this, e));
             }
         }
-	if (!eofError && result == eofValue) return result;
+        if (!eofError && result == eofValue) return result;
         if (Symbol.READ_SUPPRESS.symbolValue(thread) != NIL)
             return NIL;
         else
@@ -856,7 +856,7 @@ public class Stream extends StructureObject {
         StringBuilder sb = new StringBuilder();
         try 
             {
-		while (true) {
+                while (true) {
                     int ch = _readChar();
                     if (ch < 0)
                         break;
@@ -877,13 +877,13 @@ public class Stream extends StructureObject {
                                                   this));
                         }
                     }
-		}
+                }
             }
         catch (java.io.IOException e)
             {
-		error(new ReaderError("IO error: ",
-				      this));
-		return NIL;
+                error(new ReaderError("IO error: ",
+                                      this));
+                return NIL;
             }
         
         if (suppress)
@@ -1191,16 +1191,17 @@ public class Stream extends StructureObject {
                     return symbol;
 
                 // Error!
-                if (pkg.findInternalSymbol(symbolName) != null)
-                    return error(new ReaderError("The symbol \"" + symbolName +
-                                                 "\" is not external in package " +
-                                                 packageName + '.',
-                                                 this));
-                else
-                    return error(new ReaderError("The symbol \"" + symbolName +
-                                                 "\" was not found in package " +
-                                                 packageName + '.',
-                                                 this));
+                if (pkg.findInternalSymbol(symbolName) != null) {
+                    return error(new ReaderError("The symbol \"~A\" is not external in package ~A.",
+                                                 this,
+                                                 new SimpleString(symbolName),
+                                                 new SimpleString(packageName)));
+                } else {
+                    return error(new ReaderError("The symbol \"~A\" was not found in package ~A.",
+                                                 this,
+                                                 new SimpleString(symbolName),
+                                                 new SimpleString(packageName)));
+                }
             }
         } else {                // token.length == 0
             Package pkg = (Package)Symbol._PACKAGE_.symbolValue(thread);
@@ -2666,19 +2667,19 @@ public class Stream extends StructureObject {
     };
 
     public InputStream getWrappedInputStream() {
-	return in;
+        return in;
     }
 
     public OutputStream getWrappedOutputStream() {
-	return out;
+        return out;
     }
 
     public Writer getWrappedWriter() {
-	return writer;
+        return writer;
     }
 
     public PushbackReader getWrappedReader() {
-	return reader;
+        return reader;
     }
 
 }
