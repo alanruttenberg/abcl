@@ -119,12 +119,12 @@
 ;;; FIXME: It might be cleaner to just make these be toplevel forms and
 ;;; enforce the delay by putting this file late in the build sequence.
 (defun backq-pp-cold-init ()
-  (xp::set-pprint-dispatch+ '(cons (eql sys::backq-list)) #'pprint-backquote '(0) xp::*ipd*)
-  (xp::set-pprint-dispatch+ '(cons (eql sys::backq-list*)) #'pprint-backquote '(0) xp::*ipd*)
-  (xp::set-pprint-dispatch+ '(cons (eql sys::backq-append)) #'pprint-backquote  '(0) xp::*ipd*)
-  (xp::set-pprint-dispatch+ '(cons (eql sys::backq-nconc)) #'pprint-backquote  '(0) xp::*ipd*)
-  (xp::set-pprint-dispatch+ '(cons (eql sys::backq-cons)) #'pprint-backquote  '(0) xp::*ipd*)
-  (xp::set-pprint-dispatch+ '(cons (eql sys::backq-vector)) #'pprint-backquote  '(0) xp::*ipd*)
+  (xp::set-pprint-dispatch+ '(cons (eql backq-list)) #'pprint-backquote '(0) xp::*ipd*)
+  (xp::set-pprint-dispatch+ '(cons (eql backq-list*)) #'pprint-backquote '(0) xp::*ipd*)
+  (xp::set-pprint-dispatch+ '(cons (eql backq-append)) #'pprint-backquote  '(0) xp::*ipd*)
+  (xp::set-pprint-dispatch+ '(cons (eql backq-nconc)) #'pprint-backquote  '(0) xp::*ipd*)
+  (xp::set-pprint-dispatch+ '(cons (eql backq-cons)) #'pprint-backquote  '(0) xp::*ipd*)
+  (xp::set-pprint-dispatch+ '(cons (eql backq-vector)) #'pprint-backquote  '(0) xp::*ipd*)
   (xp::set-pprint-dispatch+ 'backq-comma #'pprint-backq-comma  '(0) xp::*ipd*))
 
 (backq-pp-cold-init)
